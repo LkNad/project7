@@ -1,3 +1,4 @@
+# filters.py
 import math
 
 
@@ -32,21 +33,40 @@ class FilterPanel:
     def get_filtered_data(self):
         sample_data = [
             {"id": 1, "price": 500000, "rooms": 2, "district": "Центральный",
-             "lat": 55.7558, "lon": 37.6173},
+             "lat": 55.7558, "lon": 37.6173, "address": "ул. Тверская, д. 15"},
             {"id": 2, "price": 750000, "rooms": 3, "district": "Северный",
-             "lat": 55.835, "lon": 37.625},
+             "lat": 55.835, "lon": 37.625,
+             "address": "пр. Ленинградский, д. 42"},
             {"id": 3, "price": 300000, "rooms": 1, "district": "Южный",
-             "lat": 55.645, "lon": 37.625},
+             "lat": 55.645, "lon": 37.625,
+             "address": "ул. Чертановская, д. 28"},
             {"id": 4, "price": 900000, "rooms": 4, "district": "Западный",
-             "lat": 55.734, "lon": 37.585},
+             "lat": 55.734, "lon": 37.585,
+             "address": "ул. Можайский Вал, д. 12"},
             {"id": 5, "price": 450000, "rooms": 2, "district": "Восточный",
-             "lat": 55.787, "lon": 37.725},
+             "lat": 55.787, "lon": 37.725,
+             "address": "ул. Щербаковская, д. 35"},
             {"id": 6, "price": 600000, "rooms": 3, "district": "Центральный",
-             "lat": 55.752, "lon": 37.605},
+             "lat": 55.752, "lon": 37.605, "address": "ул. Арбат, д. 23"},
+            {"id": 7, "price": 550000, "rooms": 2, "district": "Северный",
+             "lat": 55.845, "lon": 37.635,
+             "address": "ул. Фестивальная, д. 18"},
+            {"id": 8, "price": 400000, "rooms": 1, "district": "Южный",
+             "lat": 55.625, "lon": 37.615,
+             "address": "ул. Кировоградская, д. 7"},
+            {"id": 9, "price": 800000, "rooms": 3, "district": "Западный",
+             "lat": 55.724, "lon": 37.495,
+             "address": "ул. Кутузовский проспект, д. 31"},
+            {"id": 10, "price": 350000, "rooms": 1, "district": "Восточный",
+             "lat": 55.807, "lon": 37.785,
+             "address": "ул. Первомайская, д. 44"},
+            {"id": 11, "price": 650000, "rooms": 2, "district": "Центральный",
+             "lat": 55.745, "lon": 37.635, "address": "ул. Пятницкая, д. 19"},
+            {"id": 12, "price": 950000, "rooms": 4, "district": "Северный",
+             "lat": 55.875, "lon": 37.545, "address": "ул. Дубнинская, д. 5"},
         ]
 
         sample_data = sorted(sample_data, key=lambda x: x['price'], reverse=True)
-
 
         filtered = []
         for item in sample_data:
@@ -141,7 +161,7 @@ class ChartView:
             angle = percentage * 360
             color = colors[i % len(colors)]
 
-            if angle == 360:  # Полный круг диограммы
+            if angle == 360:
                 chart_html += f'<circle cx="{center_x}" cy="{center_y}" r="{radius}" fill="{color}" />'
             else:
                 start_angle = current_angle
@@ -221,6 +241,7 @@ class ChartView:
                         <th>Цена</th>
                         <th>Комнат</th>
                         <th>Район</th>
+                        <th>Адрес</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -233,6 +254,7 @@ class ChartView:
                     <td>{item['price']:,} руб.</td>
                     <td>{item['rooms']}</td>
                     <td>{item['district']}</td>
+                    <td>{item['address']}</td>
                 </tr>
             """
 
@@ -270,7 +292,8 @@ class MapView:
                     <div class="marker-info">
                         <strong>{marker['price']:,} руб.</strong><br>
                         {marker['rooms']} комн.<br>
-                        {marker['district']}
+                        {marker['district']}<br>
+                        <small>{marker['address']}</small>
                     </div>
                 </div>
             """
