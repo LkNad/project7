@@ -1,7 +1,7 @@
 # frontend/filters.py
 import sqlite3
 import os
-from html_renderer import (
+from frontend.html_renderer import (
     render_bar_chart,
     render_pie_chart,
     render_line_chart,
