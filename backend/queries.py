@@ -1,3 +1,4 @@
+# backend/queries.py
 # создание таблицы объявлений
 CREATE_TABLE_LISTINGS = """
 CREATE TABLE IF NOT EXISTS listings (

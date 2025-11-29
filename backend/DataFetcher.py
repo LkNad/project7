@@ -1,8 +1,10 @@
+# backend/DataFetcher.py
 import requests
 from bs4 import BeautifulSoup
 import sqlite3
 import os
 import chardet
+
 
 class DataFetcher:
     def __init__(self, source, db_path="data.db"):
@@ -15,7 +17,8 @@ class DataFetcher:
         with open(file_path, 'rb') as file:
             result = chardet.detect(file.read())
             encoding = result['encoding'] or 'utf-8'
-            print(f"Определена кодировка: {encoding} (уверенность: {result['confidence']:.2f})")
+            print(
+                f"Определена кодировка: {encoding} (уверенность: {result['confidence']:.2f})")
             return encoding
 
     def fetch(self):
@@ -26,7 +29,8 @@ class DataFetcher:
             try:
                 with open(self.source, 'r', encoding=encoding) as file:
                     content = file.read()
-                    print(f"Файл успешно прочитан, размер: {len(content)} символов")
+                    print(
+                        f"Файл успешно прочитан, размер: {len(content)} символов")
                     return content
             except Exception as e:
                 print(f"Ошибка при чтении файла: {e}")
@@ -34,9 +38,11 @@ class DataFetcher:
         else:
             print(f"Загружаю страницу: {self.source}")
             try:
-                response = requests.get(self.source, headers={"User-Agent": "Mozilla/5.0"})
+                response = requests.get(self.source,
+                                        headers={"User-Agent": "Mozilla/5.0"})
                 if response.status_code == 200:
-                    print(f"Страница загружена, размер: {len(response.text)} символов")
+                    print(
+                        f"Страница загружена, размер: {len(response.text)} символов")
                     return response.text
                 print(f"Ошибка при загрузке: {response.status_code}")
             except Exception as e:
@@ -65,7 +71,7 @@ class DataFetcher:
         return ' '.join(text.split()).strip() if text else ""
 
     def save_to_db(self, listings):
-        """Сохраняет данные в SQLite"""
+        """Сохраняет данные в SQLite с поддержкой всех полей"""
         if not listings:
             print("Нет данных для сохранения")
             return
@@ -76,13 +82,25 @@ class DataFetcher:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 address TEXT,
                 price TEXT,
+                rooms INTEGER DEFAULT 0,
+                district TEXT DEFAULT 'Неизвестный',
+                lat REAL DEFAULT 0.0,
+                lon REAL DEFAULT 0.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         for item in listings:
             cur.execute(
-                "INSERT INTO listings (address, price) VALUES (?, ?)",
-                (item["address"], item["price"])
+                """INSERT INTO listings (address, price, rooms, district, lat, lon)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    item.get("address", ""),
+                    item.get("price", ""),
+                    item.get("rooms", 0),
+                    item.get("district", "Неизвестный"),
+                    item.get("lat", 0.0),
+                    item.get("lon", 0.0)
+                )
             )
         conn.commit()
         conn.close()

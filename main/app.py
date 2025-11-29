@@ -1,6 +1,11 @@
+# main/app.py
 from flask import Flask, render_template, request
 import os
-from filters import FilterPanel, ChartView, MapView
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from frontend.filters import FilterPanel, ChartView, MapView
 
 app = Flask(__name__)
 
