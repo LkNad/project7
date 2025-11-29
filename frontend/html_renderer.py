@@ -105,13 +105,19 @@ def render_line_chart(data):
     """
     if prices:
         max_price = max(prices)
-        for i, price in enumerate(prices):
-            height = (price / max_price) * 100
-            chart_html += f"""
-                <div class="line-point" style="height: {height}px;" title="{price:,} руб.">
-                    <span class="point-value">{i + 1}</span>
-                </div>
-            """
+        if max_price > 0:
+            for i, price in enumerate(prices):
+                height = (price / max_price) * 100
+                chart_html += f"""
+                    <div class="line-point" style="height: {height}px; border" title="{price:,} руб.">
+                        <span class="point-value">{price}</span>
+                    </div>
+                """
+        else:
+            # Все цены — ноль или отрицательные
+            chart_html += "<p>Нет корректных данных о ценах</p>"
+    else:
+        chart_html += "<p>Нет данных для отображения</p>"
     chart_html += "</div></div>"
     return chart_html
 

@@ -9,9 +9,10 @@ from frontend.html_renderer import (
     render_map)
 
 
-def load_data_from_db(db_path="data.db"):
+def load_data_from_db(db_path="../data.db"):
     if not os.path.exists(db_path):
         return []
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -21,19 +22,49 @@ def load_data_from_db(db_path="data.db"):
 
     data = []
     for row in rows:
+        # Безопасное извлечение значений из sqlite3.Row
+        def safe_get(key, default=""):
+            try:
+                val = row[key]
+                return val if val else default
+            except (KeyError, IndexError):
+                return default
+
         try:
-            price = float(row["price"]) if row["price"] else 0
+            price = int(''.join(safe_get("price").split())) if safe_get(
+                "price") else 0
         except (ValueError, TypeError):
             price = 0
+
+        # Для числовых полей используем 0 по умолчанию
+        rooms = safe_get("rooms_count", 0)
+        lat = safe_get("lat", 0.0)
+        lon = safe_get("lon", 0.0)
+
+        # Приведение типов
+        try:
+            rooms = int(rooms)
+        except (ValueError, TypeError):
+            rooms = 0
+
+        try:
+            lat = float(lat)
+        except (ValueError, TypeError):
+            lat = 0.0
+
+        try:
+            lon = float(lon)
+        except (ValueError, TypeError):
+            lon = 0.0
 
         item = {
             "id": row["id"],
             "price": price,
-            "rooms": int(row.get("rooms", 0)) if row.get("rooms") else 0,
-            "district": row.get("district", "Неизвестный"),
-            "lat": float(row.get("lat", 0.0)) if row.get("lat") else 0.0,
-            "lon": float(row.get("lon", 0.0)) if row.get("lon") else 0.0,
-            "address": row.get("address", "Адрес не указан"),
+            "rooms": rooms,
+            "district": safe_get("district", "Неизвестный").capitalize(),
+            "lat": lat,
+            "lon": lon,
+            "address": safe_get("address", "Адрес не указан"),
         }
         data.append(item)
     return data
