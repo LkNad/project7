@@ -1,0 +1,16 @@
+.venv/
+.idea/
+.vscode/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+.env.*
+*.db

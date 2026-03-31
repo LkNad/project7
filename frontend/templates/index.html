@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Аналитика недвижимости</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Аналитика рынка недвижимости</h1>
+
+        <div class="status-banner status-{{ status.kind }}" role="status">
+            <strong>{{ status.title }}</strong>
+            <p>{{ status.message }}</p>
+        </div>
+
+        <div class="filter-panel">
+            <h3>Фильтры</h3>
+            <form method="POST">
+                <div class="filter-group">
+                    <label>Диапазон цен:</label>
+                    <input type="number" name="price_min" placeholder="От" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[0] }}">
+                    <input type="number" name="price_max" placeholder="До" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[1] }}">
+                    <span class="filter-hint">В базе: от {{ "{:,.0f}".format(filter_options.price_bounds.min).replace(",", " ") }} до {{ "{:,.0f}".format(filter_options.price_bounds.max).replace(",", " ") }} ₽</span>
+                </div>
+
+                <div class="filter-group">
+                    <label>Количество комнат:</label>
+                    <select name="rooms">
+                        <option value="">Любое</option>
+                        {% for room in filter_options.rooms %}
+                        <option value="{{ room.value }}" {% if current_filters.rooms|string == room.value %}selected{% endif %}>{{ room.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Район:</label>
+                    <select name="district">
+                        <option value="">Любой</option>
+                        {% for district in filter_options.districts %}
+                        <option value="{{ district }}" {% if current_filters.district == district %}selected{% endif %}>{{ district }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Тип диаграммы:</label>
+                    <select name="chart_type">
+                        <option value="bar" {% if current_filters.chart_type == 'bar' %}selected{% endif %}>Столбчатая</option>
+                        <option value="pie" {% if current_filters.chart_type == 'pie' %}selected{% endif %}>Круговая</option>
+                        <option value="line" {% if current_filters.chart_type == 'line' %}selected{% endif %}>Линейная</option>
+                        <option value="table" {% if current_filters.chart_type == 'table' %}selected{% endif %}>Таблица</option>
+                    </select>
+                </div>
+
+                <div class="filter-buttons">
+                    <button type="submit" name="action" value="apply_filters" class="btn-apply">Применить фильтры</button>
+                    <button type="submit" name="action" value="reset_filters" class="btn-reset">Сбросить фильтры</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="results-summary-grid">
+            <div class="summary-card">
+                <span class="summary-label">Всего объявлений в базе</span>
+                <strong>{{ total_count }}</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Найдено по фильтрам</span>
+                <strong>{{ results_count }}</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Минимальная цена</span>
+                <strong>{{ "{:,.0f}".format(summary.min_price).replace(",", " ") }} ₽</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Средняя цена</span>
+                <strong>{{ "{:,.0f}".format(summary.avg_price).replace(",", " ") }} ₽</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Максимальная цена</span>
+                <strong>{{ "{:,.0f}".format(summary.max_price).replace(",", " ") }} ₽</strong>
+            </div>
+        </div>
+
+        <div class="visualizations">
+            <div class="chart-section">
+                <div class="chart-container">
+                    <h3>{{ chart.title }}</h3>
+
+                    {% if chart.type == 'bar' %}
+                        {% if chart["items"] %}
+                        <div class="bar-chart">
+                            {% for item in chart["items"] %}
+                            <div class="bar-item">
+                                <div class="bar-label">{{ item.label }}</div>
+                                <div class="bar-track">
+                                    <div class="bar" style="width: {{ item.width_percent }}%;">
+                                        <span class="bar-value">{{ item.count }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="empty-state">{{ chart.empty_message }}</p>
+                        {% endif %}
+                    {% elif chart.type == 'pie' %}
+                        {% if chart["segments"] %}
+                        <div class="pie-chart-container">
+                            <div class="pie-svg-container">
+                                <svg width="200" height="200" viewBox="0 0 200 200" class="pie-svg">
+                                    {% for segment in chart["segments"] %}
+                                        {% if segment.full_circle %}
+                                        <circle cx="{{ segment.center_x }}" cy="{{ segment.center_y }}" r="{{ segment.radius }}" fill="{{ segment.color }}"></circle>
+                                        {% else %}
+                                        <path d="{{ segment.path }}" fill="{{ segment.color }}" stroke="white" stroke-width="2"></path>
+                                        {% endif %}
+                                    {% endfor %}
+                                </svg>
+                            </div>
+                            <div class="pie-legend">
+                                {% for item in chart["legend"] %}
+                                <div class="pie-legend-item">
+                                    <div class="pie-color" style="background-color: {{ item.color }};"></div>
+                                    <span>{{ item.label }}: {{ item.count }} ({{ item.percentage }}%)</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% else %}
+                        <p class="empty-state">{{ chart.empty_message }}</p>
+                        {% endif %}
+                    {% elif chart.type == 'line' %}
+                        {% if chart["points"] %}
+                        <div class="line-chart">
+                            {% for point in chart["points"] %}
+                            <div class="line-point" style="height: {{ point.height_percent }}%;" title="{{ '{:,.0f}'.format(point.price).replace(',', ' ') }} руб.">
+                                <span class="point-value">{{ "{:,.0f}".format(point.price).replace(",", " ") }}</span>
+                                <span class="point-index">{{ point.index }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <p class="chart-note">Каждый столбец — объявление в отсортированной по цене выборке, а не временная динамика.</p>
+                        {% else %}
+                        <p class="empty-state">{{ chart.empty_message }}</p>
+                        {% endif %}
+                    {% elif chart.type == 'table' %}
+                        {% if chart["rows"] %}
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Цена</th>
+                                    <th>Комнат</th>
+                                    <th>Район</th>
+                                    <th>Адрес</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in chart["rows"] %}
+                                <tr>
+                                    <td>{{ item.id }}</td>
+                                    <td>{{ "{:,.0f}".format(item.price).replace(",", " ") }} руб.</td>
+                                    <td>{{ item.rooms }}</td>
+                                    <td>{{ item.district }}</td>
+                                    <td>{{ item.address }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p class="empty-state">{{ chart.empty_message }}</p>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="map-section">
+                <div class="map-container">
+                    <h3>{{ listing_cards.title }}</h3>
+                    <p class="chart-note">Блок честно показывает карточки объявлений. Полноценная карта не подключается, чтобы не создавать ложное впечатление о наличии геовизуализации.</p>
+                    <div class="simple-map">
+                        {% if listing_cards["items"] %}
+                            {% for marker in listing_cards["items"] %}
+                            <article class="map-marker">
+                                <div class="marker-dot"></div>
+                                <div class="marker-info">
+                                    <strong>{{ "{:,.0f}".format(marker.price).replace(",", " ") }} ₽</strong>
+                                    <div>{{ marker.rooms }} комн. · {{ marker.district }}</div>
+                                    <div class="marker-meta">Адрес: {{ marker.address }}</div>
+                                    <div class="marker-meta">Площадь: {% if marker.area %}{{ marker.area }} м²{% else %}не указана{% endif %}</div>
+                                    <div class="marker-meta">Координаты:
+                                        {% if marker.lat or marker.lon %}
+                                            {{ marker.lat }}, {{ marker.lon }}
+                                        {% else %}
+                                            не указаны
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </article>
+                            {% endfor %}
+                        {% else %}
+                        <p class="empty-state">{{ listing_cards.empty_message }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <h3>Список объектов</h3>
+            {% if listings %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Адрес</th>
+                        <th>Цена</th>
+                        <th>Комнат</th>
+                        <th>Район</th>
+                        <th>Площадь</th>
+                        <th>Этаж</th>
+                        <th>Источник</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for listing in listings %}
+                    <tr>
+                        <td>{{ listing.address }}</td>
+                        <td>{{ "{:,.0f}".format(listing.price).replace(",", " ") }} руб.</td>
+                        <td>{{ listing.rooms }}</td>
+                        <td>{{ listing.district }}</td>
+                        <td>{% if listing.area %}{{ listing.area }} м²{% else %}—{% endif %}</td>
+                        <td>{{ listing.floor if listing.floor is not none else '—' }}</td>
+                        <td>
+                            {% if listing.url %}
+                            <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">{{ listing.source or 'Ссылка' }}</a>
+                            {% else %}
+                            {{ listing.source or '—' }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty-state">По текущим фильтрам объявлений не найдено.</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
