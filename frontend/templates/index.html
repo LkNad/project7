@@ -3,252 +3,1031 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Аналитика недвижимости</title>
+    <title>Карта выбора недвижимости</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/maplibre-gl.css') }}">
 </head>
-<body>
-    <div class="container">
-        <h1>Аналитика рынка недвижимости</h1>
-
-        <div class="status-banner status-{{ status.kind }}" role="status">
-            <strong>{{ status.title }}</strong>
-            <p>{{ status.message }}</p>
-        </div>
-
-        <div class="filter-panel">
-            <h3>Фильтры</h3>
-            <form method="POST">
-                <div class="filter-group">
-                    <label>Диапазон цен:</label>
-                    <input type="number" name="price_min" placeholder="От" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[0] }}">
-                    <input type="number" name="price_max" placeholder="До" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[1] }}">
-                    <span class="filter-hint">В базе: от {{ "{:,.0f}".format(filter_options.price_bounds.min).replace(",", " ") }} до {{ "{:,.0f}".format(filter_options.price_bounds.max).replace(",", " ") }} ₽</span>
-                </div>
-
-                <div class="filter-group">
-                    <label>Количество комнат:</label>
-                    <select name="rooms">
-                        <option value="">Любое</option>
-                        {% for room in filter_options.rooms %}
-                        <option value="{{ room.value }}" {% if current_filters.rooms|string == room.value %}selected{% endif %}>{{ room.label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="filter-group">
-                    <label>Район:</label>
-                    <select name="district">
-                        <option value="">Любой</option>
-                        {% for district in filter_options.districts %}
-                        <option value="{{ district }}" {% if current_filters.district == district %}selected{% endif %}>{{ district }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="filter-group">
-                    <label>Тип диаграммы:</label>
-                    <select name="chart_type">
-                        <option value="bar" {% if current_filters.chart_type == 'bar' %}selected{% endif %}>Столбчатая</option>
-                        <option value="pie" {% if current_filters.chart_type == 'pie' %}selected{% endif %}>Круговая</option>
-                        <option value="line" {% if current_filters.chart_type == 'line' %}selected{% endif %}>Линейная</option>
-                        <option value="table" {% if current_filters.chart_type == 'table' %}selected{% endif %}>Таблица</option>
-                    </select>
-                </div>
-
-                <div class="filter-buttons">
-                    <button type="submit" name="action" value="apply_filters" class="btn-apply">Применить фильтры</button>
-                    <button type="submit" name="action" value="reset_filters" class="btn-reset">Сбросить фильтры</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="results-summary-grid">
-            <div class="summary-card">
-                <span class="summary-label">Всего объявлений в базе</span>
-                <strong>{{ total_count }}</strong>
+<body class="{{ 'map-page-body' if page_kind == 'map' else 'analytics-page-body' }}">
+    <div class="page-shell map-first-shell">
+        <nav class="workspace-nav premium-panel {% if page_kind == 'map' %}workspace-nav-floating{% endif %}">
+            <div>
+                <span class="section-kicker">Навигация</span>
+                <h1>{{ page_title }}</h1>
             </div>
-            <div class="summary-card">
-                <span class="summary-label">Найдено по фильтрам</span>
-                <strong>{{ results_count }}</strong>
-            </div>
-            <div class="summary-card">
-                <span class="summary-label">Минимальная цена</span>
-                <strong>{{ "{:,.0f}".format(summary.min_price).replace(",", " ") }} ₽</strong>
-            </div>
-            <div class="summary-card">
-                <span class="summary-label">Средняя цена</span>
-                <strong>{{ "{:,.0f}".format(summary.avg_price).replace(",", " ") }} ₽</strong>
-            </div>
-            <div class="summary-card">
-                <span class="summary-label">Максимальная цена</span>
-                <strong>{{ "{:,.0f}".format(summary.max_price).replace(",", " ") }} ₽</strong>
-            </div>
-        </div>
-
-        <div class="visualizations">
-            <div class="chart-section">
-                <div class="chart-container">
-                    <h3>{{ chart.title }}</h3>
-
-                    {% if chart.type == 'bar' %}
-                        {% if chart["items"] %}
-                        <div class="bar-chart">
-                            {% for item in chart["items"] %}
-                            <div class="bar-item">
-                                <div class="bar-label">{{ item.label }}</div>
-                                <div class="bar-track">
-                                    <div class="bar" style="width: {{ item.width_percent }}%;">
-                                        <span class="bar-value">{{ item.count }}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        {% else %}
-                        <p class="empty-state">{{ chart.empty_message }}</p>
-                        {% endif %}
-                    {% elif chart.type == 'pie' %}
-                        {% if chart["segments"] %}
-                        <div class="pie-chart-container">
-                            <div class="pie-svg-container">
-                                <svg width="200" height="200" viewBox="0 0 200 200" class="pie-svg">
-                                    {% for segment in chart["segments"] %}
-                                        {% if segment.full_circle %}
-                                        <circle cx="{{ segment.center_x }}" cy="{{ segment.center_y }}" r="{{ segment.radius }}" fill="{{ segment.color }}"></circle>
-                                        {% else %}
-                                        <path d="{{ segment.path }}" fill="{{ segment.color }}" stroke="white" stroke-width="2"></path>
-                                        {% endif %}
-                                    {% endfor %}
-                                </svg>
-                            </div>
-                            <div class="pie-legend">
-                                {% for item in chart["legend"] %}
-                                <div class="pie-legend-item">
-                                    <div class="pie-color" style="background-color: {{ item.color }};"></div>
-                                    <span>{{ item.label }}: {{ item.count }} ({{ item.percentage }}%)</span>
-                                </div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                        {% else %}
-                        <p class="empty-state">{{ chart.empty_message }}</p>
-                        {% endif %}
-                    {% elif chart.type == 'line' %}
-                        {% if chart["points"] %}
-                        <div class="line-chart">
-                            {% for point in chart["points"] %}
-                            <div class="line-point" style="height: {{ point.height_percent }}%;" title="{{ '{:,.0f}'.format(point.price).replace(',', ' ') }} руб.">
-                                <span class="point-value">{{ "{:,.0f}".format(point.price).replace(",", " ") }}</span>
-                                <span class="point-index">{{ point.index }}</span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                        <p class="chart-note">Каждый столбец — объявление в отсортированной по цене выборке, а не временная динамика.</p>
-                        {% else %}
-                        <p class="empty-state">{{ chart.empty_message }}</p>
-                        {% endif %}
-                    {% elif chart.type == 'table' %}
-                        {% if chart["rows"] %}
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Цена</th>
-                                    <th>Комнат</th>
-                                    <th>Район</th>
-                                    <th>Адрес</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for item in chart["rows"] %}
-                                <tr>
-                                    <td>{{ item.id }}</td>
-                                    <td>{{ "{:,.0f}".format(item.price).replace(",", " ") }} руб.</td>
-                                    <td>{{ item.rooms }}</td>
-                                    <td>{{ item.district }}</td>
-                                    <td>{{ item.address }}</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                        {% else %}
-                        <p class="empty-state">{{ chart.empty_message }}</p>
-                        {% endif %}
+                <div class="workspace-nav-links">
+                    <a href="{{ url_for('map_page') }}" class="nav-link {% if page_kind == 'map' %}active{% endif %}">Карта</a>
+                    <a href="{{ url_for('index') }}" class="nav-link {% if page_kind != 'map' %}active{% endif %}">Подбор</a>
+                </div>
+        </nav>
+        <div class="container map-first-container {% if page_kind == 'map' %}map-page-container{% else %}analytics-page-container{% endif %}">
+            {% if page_kind == 'map' %}
+            <section class="map-workspace premium-panel">
+                <div class="workspace-canvas">
+                    <div id="listings-map" class="maplibre-map" aria-label="Карта объектов и районов"></div>
+                    {% if not map_context.has_map_data %}
+                    <p class="empty-state map-empty-overlay">{{ map_context.empty_message }}</p>
                     {% endif %}
-                </div>
-            </div>
 
-            <div class="map-section">
-                <div class="map-container">
-                    <h3>{{ listing_cards.title }}</h3>
-                    <p class="chart-note">Блок честно показывает карточки объявлений. Полноценная карта не подключается, чтобы не создавать ложное впечатление о наличии геовизуализации.</p>
-                    <div class="simple-map">
-                        {% if listing_cards["items"] %}
-                            {% for marker in listing_cards["items"] %}
-                            <article class="map-marker">
-                                <div class="marker-dot"></div>
-                                <div class="marker-info">
-                                    <strong>{{ "{:,.0f}".format(marker.price).replace(",", " ") }} ₽</strong>
-                                    <div>{{ marker.rooms }} комн. · {{ marker.district }}</div>
-                                    <div class="marker-meta">Адрес: {{ marker.address }}</div>
-                                    <div class="marker-meta">Площадь: {% if marker.area %}{{ marker.area }} м²{% else %}не указана{% endif %}</div>
-                                    <div class="marker-meta">Координаты:
-                                        {% if marker.lat or marker.lon %}
-                                            {{ marker.lat }}, {{ marker.lon }}
-                                        {% else %}
-                                            не указаны
-                                        {% endif %}
+                    <div class="map-overlay map-controls-overlay">
+                        <form method="POST" class="floating-filters-form">
+                            <div class="floating-control-bar premium-control-strip">
+                                <div class="control-field control-scenario compact-field-block compact-scenario-rail">
+                                    <span class="control-label control-label-inline">Сценарий</span>
+                                    <div class="scenario-switcher compact-switcher">
+                                        {% for mode in filter_options.map_modes %}
+                                        <button type="submit" name="map_mode" value="{{ mode.value }}" class="scenario-option {% if current_filters.map_mode == mode.value %}active{% endif %}">
+                                            <span>{{ mode.label }}</span>
+                                        </button>
+{% endfor %}
                                     </div>
                                 </div>
-                            </article>
-                            {% endfor %}
-                        {% else %}
-                        <p class="empty-state">{{ listing_cards.empty_message }}</p>
-                        {% endif %}
+
+                                <label class="control-field compact-input-group compact-field-block control-budget">
+                                    <span class="control-label control-label-inline">Бюджет</span>
+                                    <div class="double-field">
+                                        <input type="number" name="price_min" placeholder="От" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[0] }}">
+                                        <input type="number" name="price_max" placeholder="До" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[1] }}">
+                                    </div>
+                                </label>
+
+                                <label class="control-field compact-input-group compact-field-block control-district">
+                                    <span class="control-label control-label-inline">Район</span>
+                                    <select name="district">
+                                        <option value="">Любой район</option>
+                                        {% for district in filter_options.districts %}
+                                        <option value="{{ district }}" {% if current_filters.district == district %}selected{% endif %}>{{ district }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+
+                                <label class="control-field compact-input-group compact-field-block control-rooms">
+                                    <span class="control-label control-label-inline">Формат</span>
+                                    <select name="rooms">
+                                        <option value="">Любой формат</option>
+                                        {% for room in filter_options.rooms %}
+                                        <option value="{{ room.value }}" {% if current_filters.rooms|string == room.value %}selected{% endif %}>{{ room.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+
+                                    <div class="control-actions">
+                                        <button type="submit" name="action" value="apply_filters" class="btn-apply">Применить</button>
+                                        <button type="submit" name="action" value="reset_filters" class="btn-reset">Сброс</button>
+                                        <span class="compact-map-meta">{{ total_count }} · {{ map_context.market_summary.district_count }}</span>
+                                    </div>
+                            </div>
+
+                            <details class="advanced-filters overlay-advanced-filters compact-advanced-panel">
+                                <summary>Ещё фильтры и аналитика</summary>
+                                <div class="advanced-grid">
+                                    <div class="filter-group">
+                                        <label>Фокус shortlist</label>
+                                        <select name="shortlist_focus">
+                                            {% for option in filter_options.shortlist_focus %}
+                                            <option value="{{ option.value }}" {% if current_filters.shortlist_focus == option.value %}selected{% endif %}>{{ option.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Минимальная площадь</label>
+                                        <input type="number" name="area_min" min="0" max="{{ filter_options.area_bounds.max }}" value="{{ current_filters.area_min }}">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Максимум минут до метро</label>
+                                        <input type="number" name="max_metro_time" min="0" max="{{ filter_options.metro_bounds.max }}" value="{{ current_filters.max_metro_time if current_filters.max_metro_time is not none else '' }}">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Минимальный рейтинг района</label>
+                                        <input type="number" name="min_district_score" min="0" max="100" value="{{ current_filters.min_district_score }}">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Минимальный рейтинг объекта</label>
+                                        <input type="number" name="min_object_score" min="0" max="100" value="{{ current_filters.min_object_score }}">
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Формат аналитики</label>
+                                        <select name="chart_type">
+                                            <option value="bar" {% if current_filters.chart_type == 'bar' %}selected{% endif %}>Столбцы</option>
+                                            <option value="pie" {% if current_filters.chart_type == 'pie' %}selected{% endif %}>Круг</option>
+                                            <option value="line" {% if current_filters.chart_type == 'line' %}selected{% endif %}>Линия</option>
+                                            <option value="table" {% if current_filters.chart_type == 'table' %}selected{% endif %}>Таблица</option>
+                                        </select>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>Тип сделки</label>
+                                        <select name="deal_type">
+                                            <option value="">Любой</option>
+                                            <option value="sale" {% if current_filters.deal_type == 'sale' %}selected{% endif %}>Продажа</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="chip-filters compact-chip-row">
+                                    <label class="chip-toggle {% if current_filters.family_friendly_only %}active{% endif %}"><input type="checkbox" name="family_friendly_only" {% if current_filters.family_friendly_only %}checked{% endif %}>Для семьи</label>
+                                    <label class="chip-toggle {% if current_filters.investment_friendly_only %}active{% endif %}"><input type="checkbox" name="investment_friendly_only" {% if current_filters.investment_friendly_only %}checked{% endif %}>Для инвестиций</label>
+                                    <label class="chip-toggle {% if current_filters.undervalued_only %}active{% endif %}"><input type="checkbox" name="undervalued_only" {% if current_filters.undervalued_only %}checked{% endif %}>Справедливая цена</label>
+                                    <label class="chip-toggle {% if current_filters.transport_priority_only %}active{% endif %}"><input type="checkbox" name="transport_priority_only" {% if current_filters.transport_priority_only %}checked{% endif %}>Сильный транспорт</label>
+                                </div>
+                            </details>
+                        </form>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <div class="chart-container">
-            <h3>Список объектов</h3>
-            {% if listings %}
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Адрес</th>
-                        <th>Цена</th>
-                        <th>Комнат</th>
-                        <th>Район</th>
-                        <th>Площадь</th>
-                        <th>Этаж</th>
-                        <th>Источник</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for listing in listings %}
-                    <tr>
-                        <td>{{ listing.address }}</td>
-                        <td>{{ "{:,.0f}".format(listing.price).replace(",", " ") }} руб.</td>
-                        <td>{{ listing.rooms }}</td>
-                        <td>{{ listing.district }}</td>
-                        <td>{% if listing.area %}{{ listing.area }} м²{% else %}—{% endif %}</td>
-                        <td>{{ listing.floor if listing.floor is not none else '—' }}</td>
-                        <td>
-                            {% if listing.url %}
-                            <a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">{{ listing.source or 'Ссылка' }}</a>
-                            {% else %}
-                            {{ listing.source or '—' }}
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            </section>
             {% else %}
-            <p class="empty-state">По текущим фильтрам объявлений не найдено.</p>
+            <section class="analytics-header premium-panel">
+                <div class="analytics-hero-compact">
+                    <div class="analytics-hero-copy">
+                        <span class="section-kicker">Аналитика</span>
+                        <h3>{{ map_context.scenario.workspace_title }}</h3>
+                        <p class="section-note">{{ map_context.scenario.description }}</p>
+                    </div>
+                    <a href="{{ url_for('map_page') }}" class="btn-link-map">Открыть карту</a>
+                </div>
+                <form method="POST" class="analytics-toolbar-form premium-control-strip">
+                    <div class="analytics-scenario-bar">
+                        <span class="control-label control-label-inline">Сценарий</span>
+                        <div class="scenario-switcher compact-switcher analytics-scenario-switcher">
+                            {% for mode in filter_options.map_modes %}
+                            <button type="submit" name="map_mode" value="{{ mode.value }}" class="scenario-option {% if current_filters.map_mode == mode.value %}active{% endif %}">
+                                <span>{{ mode.label }}</span>
+                            </button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="analytics-filter-row">
+                        <label class="control-field compact-input-group compact-field-block control-budget analytics-budget-field">
+                            <span class="control-label control-label-inline">Бюджет</span>
+                            <div class="double-field">
+                                <input type="number" name="price_min" placeholder="От" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[0] }}">
+                                <input type="number" name="price_max" placeholder="До" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[1] }}">
+                            </div>
+                        </label>
+                        <label class="control-field compact-input-group compact-field-block control-district analytics-select-field">
+                            <span class="control-label control-label-inline">Район</span>
+                            <select name="district">
+                                <option value="">Любой район</option>
+                                {% for district in filter_options.districts %}
+                                <option value="{{ district }}" {% if current_filters.district == district %}selected{% endif %}>{{ district }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label class="control-field compact-input-group compact-field-block control-rooms analytics-select-field">
+                            <span class="control-label control-label-inline">Формат</span>
+                            <select name="rooms">
+                                <option value="">Любой формат</option>
+                                {% for room in filter_options.rooms %}
+                                <option value="{{ room.value }}" {% if current_filters.rooms|string == room.value %}selected{% endif %}>{{ room.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <div class="control-actions analytics-actions-bar">
+                            <button type="submit" name="action" value="apply_filters" class="btn-apply">Обновить</button>
+                            <button type="submit" name="action" value="reset_filters" class="btn-reset">Сброс</button>
+                        </div>
+                    </div>
+                </form>
+            </section>
+            {% endif %}
+
+            {% if page_kind != 'map' %}
+            <div class="status-banner market-summary-strip storytelling-strip" role="status">
+                <span><strong>{{ map_context.story_points[0] }}</strong></span>
+                <span><strong>{{ map_context.story_points[1] }}</strong></span>
+                <span><strong>{{ map_context.story_points[2] }}</strong></span>
+            </div>
+
+            <section class="compare-section premium-panel analytics-layer">
+                <div class="section-head compact-head compare-layer-head">
+                    <div>
+                        <span class="section-kicker">Сравнение районов</span>
+                        <h3>Сильный вердикт по двум районам</h3>
+                        <p class="section-note">Компактный вердикт один к одному, затем 4 плотных сценарных сигнала без пустых зон.</p>
+                    </div>
+                    <div class="filter-group compare-picks compare-toolbar">
+                        <form method="POST" class="compare-form-inline">
+                            <input type="hidden" name="price_min" value="{{ current_filters.price_range[0] }}">
+                            <input type="hidden" name="price_max" value="{{ current_filters.price_range[1] }}">
+                            <input type="hidden" name="district" value="{{ current_filters.district or '' }}">
+                            <input type="hidden" name="rooms" value="{{ current_filters.rooms or '' }}">
+                            <input type="hidden" name="chart_type" value="{{ current_filters.chart_type }}">
+                            <input type="hidden" name="map_mode" value="{{ current_filters.map_mode }}">
+                            <input type="hidden" name="area_min" value="{{ current_filters.area_min }}">
+                            <input type="hidden" name="deal_type" value="{{ current_filters.deal_type or '' }}">
+                            <input type="hidden" name="max_metro_time" value="{{ current_filters.max_metro_time or '' }}">
+                            <input type="hidden" name="min_district_score" value="{{ current_filters.min_district_score }}">
+                            <input type="hidden" name="min_object_score" value="{{ current_filters.min_object_score }}">
+                            <input type="hidden" name="shortlist_focus" value="{{ current_filters.shortlist_focus }}">
+                            <span class="compare-form-label">Выберите два района</span>
+                            <div class="compare-checkbox-grid">
+                                {% for district in filter_options.district_compare_options %}
+                                <label class="compare-checkbox {% if district in current_filters.compare_districts %}active{% endif %}">
+                                    <input type="checkbox" name="compare_districts" value="{{ district }}" {% if district in current_filters.compare_districts %}checked{% endif %} onchange="if(this.checked && document.querySelectorAll('input[name=&quot;compare_districts&quot;]:checked').length>2){this.checked=false;}">
+                                    <span>{{ district }}</span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                            <button type="submit" name="action" value="apply_filters" class="btn-apply compare-submit">Показать вердикт</button>
+                        </form>
+                    </div>
+                </div>
+                {% if compare.comparison %}
+                <div class="compare-grid enhanced-compare-grid">
+                    <article class="compare-card compare-district-card premium-compare-side">
+                        <div class="compare-card-head">
+                            <h4>{{ compare.comparison.left.district }}</h4>
+                            <span class="score-chip">{{ "%.1f"|format(compare.comparison.left.district_score) }}</span>
+                        </div>
+                        <div class="compare-emphasis">
+                            <strong>{{ compare.comparison.left.profile_label_ru }}</strong>
+                            <span>{{ "{:,.0f}".format(compare.comparison.left.avg_price).replace(",", " ") }} ₽</span>
+                        </div>
+                        <div class="compare-metrics premium-compare-metrics">
+                            <p>Цена за м² <strong>{{ "{:,.0f}".format(compare.comparison.left.avg_price_per_m2).replace(",", " ") }} ₽</strong></p>
+                            <p>Семья <strong>{{ "%.0f"|format(compare.comparison.left.family_score) }}</strong></p>
+                            <p>Транспорт <strong>{{ "%.0f"|format(compare.comparison.left.transport_score) }}</strong></p>
+                            <p>Инвестиции <strong>{{ "%.0f"|format(compare.comparison.left.investment_score) }}</strong></p>
+                        </div>
+                        <div class="compare-highlight-band">
+                            <span>Профиль: {{ compare.comparison.left.profile_label_ru }}</span>
+                            <span>{{ compare.comparison.left.listing_count }} объектов</span>
+                        </div>
+                    </article>
+                    <article class="compare-card accent-card verdict-card premium-verdict-card">
+                        <span class="section-kicker">Вердикт</span>
+                        <h4>{{ compare.comparison.winner }}</h4>
+                        <p class="verdict-lead">Победитель по суммарному рейтингу: <strong>{{ compare.comparison.winner }}</strong></p>
+                        <p>{{ compare.comparison.verdict }}</p>
+                        <div class="verdict-stats-row">
+                            <span>Разница по рейтингу {{ compare.comparison.score_gap }}</span>
+                            <span>Разница по бюджету {{ "{:,.0f}".format(compare.comparison.price_gap).replace(",", " ") }} ₽</span>
+                        </div>
+                        <div class="verdict-spotlight">{{ compare.comparison.tradeoffs[0] }} · {{ compare.comparison.tradeoffs[1] }}</div>
+                        <ul class="reason-list clean-list">
+                            {% for point in compare.comparison.tradeoffs %}
+                            <li>{{ point }}</li>
+                            {% endfor %}
+                        </ul>
+                    </article>
+                    <article class="compare-card compare-district-card premium-compare-side">
+                        <div class="compare-card-head">
+                            <h4>{{ compare.comparison.right.district }}</h4>
+                            <span class="score-chip">{{ "%.1f"|format(compare.comparison.right.district_score) }}</span>
+                        </div>
+                        <div class="compare-emphasis">
+                            <strong>{{ compare.comparison.right.profile_label_ru }}</strong>
+                            <span>{{ "{:,.0f}".format(compare.comparison.right.avg_price).replace(",", " ") }} ₽</span>
+                        </div>
+                        <div class="compare-metrics premium-compare-metrics">
+                            <p>Цена за м² <strong>{{ "{:,.0f}".format(compare.comparison.right.avg_price_per_m2).replace(",", " ") }} ₽</strong></p>
+                            <p>Семья <strong>{{ "%.0f"|format(compare.comparison.right.family_score) }}</strong></p>
+                            <p>Транспорт <strong>{{ "%.0f"|format(compare.comparison.right.transport_score) }}</strong></p>
+                            <p>Инвестиции <strong>{{ "%.0f"|format(compare.comparison.right.investment_score) }}</strong></p>
+                        </div>
+                        <div class="compare-highlight-band">
+                            <span>Профиль: {{ compare.comparison.right.profile_label_ru }}</span>
+                            <span>{{ compare.comparison.right.listing_count }} объектов</span>
+                        </div>
+                    </article>
+                </div>
+                <div class="scenario-verdict-grid">
+                    {% for metric in compare.comparison.scenario_cards %}
+                    <article class="compare-card scenario-verdict-card premium-scenario-card">
+                        <span class="section-kicker">{{ metric.label }}</span>
+                        <h4>{{ metric.winner }}</h4>
+                        <div class="mini-progress-row">
+                            <div class="mini-progress"><div class="mini-progress-fill" style="width: {{ metric.left }}%"></div></div>
+                            <div class="mini-progress"><div class="mini-progress-fill alt" style="width: {{ metric.right }}%"></div></div>
+                        </div>
+                        <p>{{ compare.comparison.left.district }} {{ metric.left }} · {{ compare.comparison.right.district }} {{ metric.right }}</p>
+                    </article>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-state">Выберите два района, чтобы получить сравнение один к одному.</p>
+                {% endif %}
+            </section>
+
+            <section class="premium-panel listings-section results-layer">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Объекты</span>
+                        <h3>Подборка объектов</h3>
+                        <p class="section-note">Карточки собраны вокруг цены, рейтинга, визуального блока и короткого объяснения, почему объект попал в подборку.</p>
+                    </div>
+                </div>
+                {% if listings %}
+                <div class="listings-grid premium-listings-grid">
+                    {% for listing in listings %}
+                    <article class="listing-card premium-listing-card">
+                        <div class="listing-media {% if not listing.image_url %}fallback-media{% endif %}" {% if listing.image_url %}style="background-image: linear-gradient(180deg, rgba(18, 37, 63, 0.05), rgba(18, 37, 63, 0.55)), url('{{ listing.image_url }}');"{% endif %}>
+                            <div class="listing-media-top">
+                                <span class="listing-badge">{{ listing.district }}</span>
+                                <span class="score-chip">{{ "%.1f"|format(listing.scores.object_score) }}</span>
+                            </div>
+                            {% if not listing.image_url %}
+                            <div class="media-placeholder">Фото пока недоступно · {{ listing.building_type or 'жилой формат' }}</div>
+                            {% endif %}
+                            <div class="listing-media-bottom">
+                                <div>
+                                    <span class="media-label">Цена</span>
+                                    <strong>{{ "{:,.0f}".format(listing.price).replace(",", " ") }} ₽</strong>
+                                </div>
+                                <div>
+                                    <span class="media-label">Позиция</span>
+                                    <strong>{{ listing.marker_badge }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="listing-content">
+                            <div class="listing-card-head">
+                                <div>
+                                    <h4>{{ listing.title or listing.address }}</h4>
+                                    <p>{{ listing.address }}</p>
+                                </div>
+                            </div>
+                            <div class="listing-price-row">
+                                <div class="listing-price">{{ "{:,.0f}".format(listing.price).replace(",", " ") }} ₽</div>
+                                <div class="price-callout">{{ "{:,.0f}".format(listing.price_per_m2).replace(",", " ") }} ₽/м²</div>
+                            </div>
+                            <div class="price-secondary">score {{ "%.1f"|format(listing.scores.object_score) }} · район {{ listing.district }} · {{ listing.marker_badge }}</div>
+                            <div class="listing-verdict-row">
+                                <span class="verdict-pill">{{ listing.marker_note }}</span>
+                                <span class="listing-rank-chip">#{{ loop.index }}</span>
+                            </div>
+                            <div class="listing-stats">
+                                <span>{{ listing.rooms }} комн.</span>
+                                <span>{{ listing.area }} м²</span>
+                                <span>{% if listing.metro_station %}{{ listing.metro_station }}{% else %}Метро не указано{% endif %}</span>
+                                <span>{% if listing.metro_time_min is not none %}{{ listing.metro_time_min }} мин до метро{% else %}Время до метро не указано{% endif %}</span>
+                            </div>
+                            <div class="score-strip detailed compact-score-strip">
+                                <span>Цена/качество {{ "%.0f"|format(listing.scores.value_score) }}</span>
+                                <span>Транспорт {{ "%.0f"|format(listing.scores.transport_score) }}</span>
+                                <span>Сценарий {{ "%.0f"|format(listing.scores.object_score) }}</span>
+                            </div>
+                            <div class="explain-box premium-explain-box">
+                                <strong>Короткие причины</strong>
+                                <div class="why-recommended-badge">{{ listing.marker_badge }} · {{ listing.price_compact }}</div>
+                                <ul class="reason-list clean-list">
+                                    {% for reason in listing.recommendation_reasons[:3] %}
+                                    <li>{{ reason }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            <div class="listing-footer">
+                                <span>Общий рейтинг {{ "%.1f"|format(listing.scores.object_score) }}</span>
+                                {% if listing.url %}<a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Открыть объявление</a>{% endif %}
+                            </div>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-state">По текущим фильтрам объявлений не найдено.</p>
+                {% endif %}
+            </section>
             {% endif %}
         </div>
     </div>
+    <script src="{{ url_for('static', filename='vendor/maplibre-gl.js') }}"></script>
+    <script>
+        (function () {
+            const mapData = {{ map_context|tojson }};
+            const mapElement = document.getElementById('listings-map');
+            if (!mapElement || typeof maplibregl === 'undefined') {
+                return;
+            }
+
+            function debugMap(event, payload) {
+                try {
+                    console.info('[MapDebug]', event, payload || {});
+                } catch (error) {
+                    console.log('[MapDebug]', event);
+                }
+            }
+
+            const localRasterFallback = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" fill="#edf3f8"/><path d="M0 0H256V256" stroke="#dbe5f0" stroke-width="1" opacity="0.45"/><path d="M0 256L256 0" stroke="#dbe5f0" stroke-width="1" opacity="0.35"/><path d="M0 64H256M0 128H256M0 192H256M64 0V256M128 0V256M192 0V256" stroke="#c8d6e6" stroke-width="1" opacity="0.45"/><circle cx="128" cy="128" r="46" fill="#dfe9f4" stroke="#b8cae0" stroke-width="2"/><circle cx="128" cy="128" r="7" fill="#7b93b2"/></svg>');
+
+            const fallbackTileSets = [
+                [
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+                ],
+                [
+                    'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                    'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+                    'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+                ],
+                [
+                    localRasterFallback
+                ]
+            ];
+
+            let basemapIndex = 0;
+            let mapReady = false;
+            let styleInitialized = false;
+            let tileFailureCount = 0;
+            let usingOfflineFallback = false;
+
+            function createBaseStyle(tileUrls, useLocalFallback) {
+                const style = {
+                    version: 8,
+                    sources: tileUrls ? {
+                        'basemap-raster': {
+                            type: 'raster',
+                            tiles: tileUrls,
+                            tileSize: 256,
+                            attribution: useLocalFallback ? 'Локальный fallback basemap' : '© OpenStreetMap contributors © CARTO'
+                        }
+                    } : {},
+                    layers: [
+                        {
+                            id: 'workspace-background',
+                            type: 'background',
+                            paint: {
+                                'background-color': '#e6eef7'
+                            }
+                        },
+                        {
+                            id: 'workspace-glow',
+                            type: 'background',
+                            paint: {
+                                'background-color': 'rgba(237, 244, 251, 0.75)'
+                            }
+                        }
+                    ]
+                };
+
+                if (tileUrls) {
+                    style.layers.push({
+                        id: 'basemap-raster-layer',
+                        type: 'raster',
+                        source: 'basemap-raster',
+                        minzoom: 0,
+                        maxzoom: 19,
+                        paint: {
+                            'raster-opacity': 0.94,
+                            'raster-saturation': -0.18,
+                            'raster-contrast': 0.08,
+                            'raster-brightness-min': 0.72,
+                            'raster-brightness-max': 0.98
+                        }
+                    });
+                }
+
+                return style;
+            }
+
+            function setMapVisualState(state) {
+                mapElement.dataset.mapState = state;
+            }
+
+            function activateOfflineFallback(reason) {
+                if (usingOfflineFallback) {
+                    return;
+                }
+                usingOfflineFallback = true;
+                debugMap('offline-fallback', { reason: reason || 'unknown' });
+                setMapVisualState('fallback');
+                map.setStyle(createBaseStyle([localRasterFallback], true));
+            }
+
+            function rotateBasemap(reason) {
+                basemapIndex += 1;
+                if (basemapIndex < fallbackTileSets.length) {
+                    debugMap('basemap-rotate', { reason: reason || 'tile-error', nextIndex: basemapIndex });
+                    setMapVisualState('loading');
+                    map.setStyle(createBaseStyle(fallbackTileSets[basemapIndex], basemapIndex === fallbackTileSets.length - 1));
+                    return;
+                }
+                activateOfflineFallback(reason || 'all-basemaps-failed');
+            }
+
+            debugMap('bootstrap', {
+                hasMapData: Boolean(mapData && mapData.has_map_data),
+                listings: Array.isArray(mapData && mapData.listings) ? mapData.listings.length : 0,
+                districts: Array.isArray(mapData && mapData.districts) ? mapData.districts.length : 0,
+                containerWidth: mapElement.clientWidth,
+                containerHeight: mapElement.clientHeight,
+                basemapCandidates: fallbackTileSets.length
+            });
+
+            setMapVisualState('loading');
+
+            const map = new maplibregl.Map({
+                container: mapElement,
+                style: createBaseStyle(fallbackTileSets[basemapIndex], false),
+                center: [mapData.center.lon, mapData.center.lat],
+                zoom: mapData.center.zoom || 11,
+                attributionControl: false,
+                cooperativeGestures: false
+            });
+
+            map.addControl(new maplibregl.AttributionControl({ compact: true }));
+            map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+
+            const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 18, className: 'maplibre-popup-shell' });
+            const markers = [];
+
+            function formatMoney(value) {
+                return new Intl.NumberFormat('ru-RU').format(Math.round(value || 0)) + ' ₽';
+            }
+
+            function formatShortMoney(value) {
+                const number = Number(value || 0);
+                if (number >= 1000000) {
+                    return (number / 1000000).toFixed(1).replace('.0', '') + ' млн ₽';
+                }
+                return formatMoney(number);
+            }
+
+            function toneClass(score) {
+                if (score >= 75) return 'high';
+                if (score >= 60) return 'mid';
+                return 'low';
+            }
+
+            function submitScenarioForm(form) {
+                if (!form) return;
+                const applyButton = form.querySelector('button[name="action"][value="apply_filters"]');
+                if (applyButton) {
+                    applyButton.click();
+                    return;
+                }
+                form.submit();
+            }
+
+            function syncScenarioState() {
+                document.querySelectorAll('input[name="map_mode"]').forEach(function (radio) {
+                    const option = radio.closest('.scenario-option');
+                    if (option) {
+                        option.classList.toggle('active', radio.checked);
+                    }
+                });
+            }
+
+            document.querySelectorAll('input[name="map_mode"]').forEach(function (input) {
+                input.addEventListener('change', function () {
+                    const form = input.form;
+                    if (!form) return;
+                    syncScenarioState();
+                    submitScenarioForm(form);
+                });
+            });
+
+            document.querySelectorAll('.scenario-option').forEach(function (option) {
+                option.addEventListener('pointerdown', function (event) {
+                    event.preventDefault();
+                    const input = option.querySelector('input[name="map_mode"]');
+                    if (!input || input.checked) return;
+                    input.checked = true;
+                    syncScenarioState();
+                    submitScenarioForm(input.form);
+                });
+            });
+
+            syncScenarioState();
+
+            function zoneColor(tone) {
+                if (tone === 'prime') return '#3b6cff';
+                if (tone === 'strong') return '#5f88ff';
+                if (tone === 'stable') return '#88a6ea';
+                return '#b2c2da';
+            }
+
+            function heatColor(level) {
+                if (level === 'hot') return '#2f63e0';
+                if (level === 'warm') return '#5f88ff';
+                if (level === 'steady') return '#86a6e8';
+                return '#a8bad6';
+            }
+
+            function createPoint(lon, lat, properties) {
+                return { type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties: properties || {} };
+            }
+
+            function clearMarkers() {
+                while (markers.length) {
+                    markers.pop().remove();
+                }
+            }
+
+            function addHtmlMarker(lon, lat, html, className, popupHtml, onClick) {
+                const element = document.createElement('div');
+                element.className = className || 'maplibre-html-marker';
+                element.innerHTML = html;
+
+                if (popupHtml) {
+                    element.addEventListener('mouseenter', function () {
+                        popup.setLngLat([lon, lat]).setHTML(popupHtml).addTo(map);
+                    });
+                    element.addEventListener('mouseleave', function () {
+                        popup.remove();
+                    });
+                }
+
+                if (onClick) {
+                    element.addEventListener('click', onClick);
+                }
+
+                const marker = new maplibregl.Marker({ element: element, anchor: 'center' })
+                    .setLngLat([lon, lat])
+                    .addTo(map);
+                markers.push(marker);
+                return marker;
+            }
+
+            function viewLevel(zoom) {
+                const districtViewZoom = Number(mapData.clustering.district_view_zoom || 11);
+                const clusterMaxZoom = Number(mapData.clustering.cluster_max_zoom || 13);
+                const detailZoom = Number(mapData.clustering.detail_zoom || 15);
+                if (zoom <= districtViewZoom) return 'district';
+                if (zoom < detailZoom) return 'cluster';
+                return 'listing';
+            }
+
+            function getCellSize(zoom) {
+                if (zoom <= Number(mapData.clustering.district_view_zoom || 11)) return Number(mapData.clustering.base_cell || 0.018);
+                if (zoom <= Number(mapData.clustering.cluster_max_zoom || 13)) return Number(mapData.clustering.mid_cell || 0.01);
+                return Number(mapData.clustering.detail_cell || 0.0045);
+            }
+
+            function inViewport(item) {
+                const viewport = map.getBounds();
+                return viewport && viewport.contains([item.lon, item.lat]);
+            }
+
+            function clusterListings(items, zoom) {
+                const visibleItems = items.filter(inViewport);
+                const dataset = visibleItems.length ? visibleItems : items;
+                if (viewLevel(zoom) === 'listing') {
+                    return dataset.map((item) => ({ type: 'single', lat: item.lat, lon: item.lon, items: [item], score: item.scenario_score }));
+                }
+                const cell = getCellSize(zoom);
+                const groups = new Map();
+                dataset.forEach((item) => {
+                    const key = [Math.floor(item.lat / cell), Math.floor(item.lon / cell)].join(':');
+                    if (!groups.has(key)) groups.set(key, []);
+                    groups.get(key).push(item);
+                });
+                return Array.from(groups.values()).map((group) => {
+                    if (group.length === 1) {
+                        const item = group[0];
+                        return { type: 'single', lat: item.lat, lon: item.lon, items: group, score: item.scenario_score };
+                    }
+                    const lat = group.reduce((sum, item) => sum + item.lat, 0) / group.length;
+                    const lon = group.reduce((sum, item) => sum + item.lon, 0) / group.length;
+                    const avgPrice = group.reduce((sum, item) => sum + (item.price || 0), 0) / group.length;
+                    const topScore = Math.max.apply(null, group.map((item) => Number(item.scenario_score || 0)));
+                    const topItem = group.slice().sort((a, b) => Number(b.scenario_score || 0) - Number(a.scenario_score || 0))[0];
+                    return { type: 'cluster', lat, lon, items: group, avgPrice, topItem, score: topScore };
+                });
+            }
+
+            function districtPopup(district) {
+                return `
+                    <div class="map-popup district-popup">
+                        <strong>#${district.rank} · ${district.district}</strong>
+                        <p>${district.story}</p>
+                        <div class="popup-metrics">
+                            <span>Сценарий ${Number(district.scenario_score).toFixed(1)}</span>
+                            <span>Транспорт ${Number(district.transport_score).toFixed(0)}</span>
+                            <span>Семья ${Number(district.family_score).toFixed(0)}</span>
+                            <span>Инвестиции ${Number(district.investment_score).toFixed(0)}</span>
+                            <span>Доля ${Number(district.market_share || 0).toFixed(0)}%</span>
+                        </div>
+                    </div>`;
+            }
+
+            function listingPopup(listing) {
+                const reasons = (listing.recommendation_reasons || []).slice(0, 3).map((reason) => `<li>${reason}</li>`).join('');
+                return `
+                    <div class="map-popup listing-popup">
+                        <strong>${listing.title}</strong>
+                        <p>${listing.address}</p>
+                        <div class="popup-price">${formatMoney(listing.price)} · ${listing.rooms} комн. · ${listing.area} м²</div>
+                        <div class="popup-meta">${listing.district}${listing.metro_station ? ' · ' + listing.metro_station : ''}${listing.metro_time_min !== null ? ' · ' + listing.metro_time_min + ' мин' : ''}</div>
+                        <div class="popup-metrics">
+                            <span>${mapData.scenario.label}: ${Number(listing.scenario_score).toFixed(1)}</span>
+                            <span>Рейтинг объекта ${Number(listing.scores.object_score).toFixed(1)}</span>
+                            <span>${listing.marker_note}</span>
+                        </div>
+                        <ul class="popup-reasons">${reasons}</ul>
+                    </div>`;
+            }
+
+            function ensureSource(id, data) {
+                const source = map.getSource(id);
+                if (source) {
+                    source.setData(data);
+                    return;
+                }
+                map.addSource(id, { type: 'geojson', data });
+            }
+
+            function ensureLayer(layer) {
+                if (!map.getLayer(layer.id)) {
+                    map.addLayer(layer);
+                }
+            }
+
+            function setDistrictHoverState(feature, active) {
+                if (!feature || feature.id === undefined || feature.id === null) {
+                    return;
+                }
+                map.setFeatureState({ source: 'district-polygons', id: feature.id }, { hover: active });
+            }
+
+            function buildDistrictPolygonFeatures() {
+                return (mapData.district_geojson && mapData.district_geojson.features ? mapData.district_geojson.features : []).map(function (feature, index) {
+                    const props = feature.properties || {};
+                    return {
+                        type: 'Feature',
+                        id: index,
+                        geometry: feature.geometry,
+                        properties: {
+                            district: props.district,
+                            rank: props.rank,
+                            scenario_score: props.scenario_score,
+                            listing_count: props.listing_count,
+                            zone_tone: props.zone_tone,
+                            heat_level: props.heat_level,
+                            fillColor: zoneColor(props.zone_tone),
+                            lineColor: heatColor(props.heat_level),
+                            fillOpacity: props.rank <= 1 ? 0.18 : props.rank <= 3 ? 0.11 : 0.06,
+                            lineOpacity: props.rank <= 3 ? 0.62 : 0.34
+                        }
+                    };
+                });
+            }
+
+            function buildDistrictCentroidFeatures() {
+                return (mapData.districts || []).map(function (district) {
+                    return createPoint(district.lon, district.lat, {
+                        district: district.district,
+                        rank: district.rank,
+                        story: district.story,
+                        avg_price_label: district.avg_price_label,
+                        scenario_score: district.scenario_score,
+                        transport_score: district.transport_score,
+                        family_score: district.family_score,
+                        investment_score: district.investment_score,
+                        market_share: district.market_share,
+                        lineColor: heatColor(district.heat_level)
+                    });
+                });
+            }
+
+            function ensureMapLayers() {
+                ensureSource('district-polygons', { type: 'FeatureCollection', features: [] });
+                ensureSource('district-centroids', { type: 'FeatureCollection', features: [] });
+
+                ensureLayer({
+                    id: 'district-tint-glow',
+                    type: 'line',
+                    source: 'district-polygons',
+                    maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                    paint: {
+                        'line-color': ['get', 'fillColor'],
+                        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 7, 12, 10, 14, 6],
+                        'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.14, 12.5, 0.08, 14.4, 0],
+                        'line-blur': 1.4
+                    }
+                });
+
+                ensureLayer({
+                    id: 'district-tint-fill',
+                    type: 'fill',
+                    source: 'district-polygons',
+                    maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                    paint: {
+                        'fill-color': ['get', 'fillColor'],
+                        'fill-outline-color': ['get', 'lineColor'],
+                        'fill-opacity': [
+                            'case',
+                            ['boolean', ['feature-state', 'hover'], false],
+                            0.26,
+                            ['interpolate', ['linear'], ['zoom'], 8, ['get', 'fillOpacity'], Number(mapData.clustering.polygon_fade_zoom || 12.8), 0.08, Number(mapData.clustering.detail_zoom || 14.6), 0.02]
+                        ]
+                    }
+                });
+
+                ensureLayer({
+                    id: 'district-outline-line',
+                    type: 'line',
+                    source: 'district-polygons',
+                    maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                    paint: {
+                        'line-color': ['get', 'lineColor'],
+                        'line-opacity': ['get', 'lineOpacity'],
+                        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.1, 12, 1.5, 14, 1.0]
+                    }
+                });
+
+                ensureLayer({
+                    id: 'district-centroid-line',
+                    type: 'circle',
+                    source: 'district-centroids',
+                    maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                    paint: {
+                        'circle-color': ['get', 'lineColor'],
+                        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2.4, 12, 3.8, 14, 2.2],
+                        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.42, 13, 0.22, 14.5, 0]
+                    }
+                });
+
+                if (!map.__districtHoverBound) {
+                    let hoveredDistrictFeature = null;
+                    map.on('mousemove', 'district-tint-fill', function (event) {
+                        const feature = event.features && event.features[0];
+                        if (!feature) return;
+                        if (hoveredDistrictFeature && hoveredDistrictFeature.id !== feature.id) {
+                            setDistrictHoverState(hoveredDistrictFeature, false);
+                        }
+                        hoveredDistrictFeature = feature;
+                        setDistrictHoverState(feature, true);
+                        const district = (mapData.districts || []).find(function (item) { return item.district === feature.properties.district; });
+                        if (!district) return;
+                        popup.setLngLat(event.lngLat).setHTML(districtPopup(district)).addTo(map);
+                        map.getCanvas().style.cursor = 'pointer';
+                    });
+
+                    map.on('mouseleave', 'district-tint-fill', function () {
+                        if (hoveredDistrictFeature) {
+                            setDistrictHoverState(hoveredDistrictFeature, false);
+                            hoveredDistrictFeature = null;
+                        }
+                        popup.remove();
+                        map.getCanvas().style.cursor = '';
+                    });
+
+                    map.__districtHoverBound = true;
+                }
+            }
+
+            function renderSignalCues() {
+                if (map.getZoom() > Number(mapData.clustering.cluster_max_zoom || 13)) {
+                    return;
+                }
+                (mapData.districts || []).slice(0, 2).forEach(function (district) {
+                    const color = district.is_best_value_area ? '#16a34a' : zoneColor(district.zone_tone);
+                    const label = district.is_best_value_area ? 'Лучшая value-зона' : district.is_top_district ? 'Лучший район' : 'Приоритет';
+                    addHtmlMarker(district.lon, district.lat, `<div class="map-signal-pill tone-${district.zone_tone}" style="--signal-color:${color}">${label}</div>`, 'maplibre-html-marker signal-cue-marker');
+                });
+                if (mapData.best_value_listing && map.getZoom() >= Number(mapData.clustering.cluster_max_zoom || 13) - 0.4) {
+                    addHtmlMarker(mapData.best_value_listing.lon, mapData.best_value_listing.lat, '<div class="map-pin-note">Активный режим</div>', 'maplibre-html-marker map-pin-note-marker');
+                }
+            }
+
+            function renderDistricts() {
+                const level = viewLevel(map.getZoom());
+                ensureSource('district-polygons', { type: 'FeatureCollection', features: level === 'listing' ? [] : buildDistrictPolygonFeatures() });
+                ensureSource('district-centroids', { type: 'FeatureCollection', features: level === 'listing' ? [] : buildDistrictCentroidFeatures() });
+                if (level === 'listing') return;
+                (mapData.districts || []).forEach(function (district) {
+                    if (district.rank <= 3 && level === 'district') {
+                        addHtmlMarker(district.lon, district.lat, `<div class="district-rank-badge tone-${district.zone_tone}">#${district.rank}</div>`, 'maplibre-html-marker district-rank-marker', districtPopup(district));
+                    }
+                });
+            }
+
+            function renderListings() {
+                const zoom = map.getZoom();
+                const detailZoom = Number(mapData.clustering.detail_zoom || 15);
+                const level = viewLevel(zoom);
+                if (level === 'district') return;
+                const clusters = clusterListings(mapData.listings || [], zoom);
+                clusters.forEach((cluster) => {
+                    if (cluster.type === 'cluster') {
+                        const bestValue = cluster.items.some((item) => item.is_best_value);
+                        const topPick = cluster.items.some((item) => item.is_top_pick);
+                        const averageScore = cluster.items.reduce((sum, item) => sum + Number(item.scenario_score || 0), 0) / cluster.items.length;
+                        const prices = cluster.items.map((item) => Number(item.price || 0)).filter(Boolean).sort((a, b) => a - b);
+                        const priceRange = prices.length ? `${formatShortMoney(prices[0])}–${formatShortMoney(prices[prices.length - 1])}` : '—';
+                        const metroFast = cluster.items.filter((item) => Number(item.metro_time_min || 99) <= 12).length;
+                        const html = `
+                            <div class="cluster-marker tone-${toneClass(cluster.score)} ${bestValue ? 'has-value' : ''} ${topPick ? 'has-top-pick' : ''}">
+                                <span class="cluster-count">${cluster.items.length}</span>
+                                <div class="cluster-marker-meta">
+                                    <strong>${topPick ? 'Top picks' : bestValue ? 'Value focus' : 'Cluster'}</strong>
+                                    <small>${priceRange}</small>
+                                    <b>${averageScore.toFixed(0)} score</b>
+                                </div>
+                            </div>`;
+                        addHtmlMarker(cluster.lon, cluster.lat, html, 'maplibre-html-marker cluster-marker-anchor', `
+                            <div class="map-popup cluster-popup">
+                                <strong>${cluster.items.length} объектов в зоне</strong>
+                                <p>Средняя цена ${formatMoney(cluster.avgPrice)} · диапазон ${priceRange}. Лучший сигнал: ${cluster.topItem ? cluster.topItem.title : '—'}.</p>
+                                <div class="popup-metrics"><span>Сценарий ${Number(cluster.score).toFixed(1)}</span><span>Быстрое метро: ${metroFast}</span><span>${topPick ? 'Есть top picks' : bestValue ? 'Есть value-сигнал' : 'Есть shortlist'}</span></div>
+                            </div>`, function () {
+                            map.easeTo({ center: [cluster.lon, cluster.lat], zoom: Math.min(zoom + 2, detailZoom), duration: 700 });
+                        });
+                        return;
+                    }
+                    const listing = cluster.items[0];
+                    const compact = zoom < detailZoom;
+                    const showPrice = zoom >= Number(mapData.clustering.price_marker_zoom || 14);
+                    const html = compact || !showPrice
+                        ? `<div class="listing-marker-pin tone-${listing.marker_tone} ${listing.is_top_pick ? 'top-pick' : ''} ${listing.is_best_value ? 'best-value' : ''}"><span class="pin-core"></span></div>`
+                        : `<div class="map-price-pill tone-${listing.marker_tone} ${listing.is_top_pick ? 'top-pick' : ''} ${listing.is_best_value ? 'best-value' : ''}"><span class="pill-icon"></span><span class="pill-price">${listing.price_compact}</span><span class="pill-badge">${listing.marker_badge}</span></div>`;
+                    addHtmlMarker(listing.lon, listing.lat, html, 'maplibre-html-marker listing-marker-anchor', listingPopup(listing));
+                });
+            }
+
+            function redrawMapLayers() {
+                clearMarkers();
+                renderDistricts();
+                renderListings();
+                renderSignalCues();
+            }
+
+            function getViewportPadding() {
+                const compact = window.innerWidth <= 1360;
+                return compact ? { topLeft: [18, 86], bottomRight: [18, 80] } : { topLeft: [24, 94], bottomRight: [24, 88] };
+            }
+
+            function applyInitialViewport() {
+                if (!(mapData.viewport_bounds && mapData.viewport_bounds.length === 2)) return;
+                const padding = getViewportPadding();
+                map.fitBounds(mapData.viewport_bounds, {
+                    padding: { top: padding.topLeft[1], left: padding.topLeft[0], right: padding.bottomRight[0], bottom: padding.bottomRight[1] },
+                    maxZoom: mapData.center.zoom || 11.2,
+                    duration: 0
+                });
+            }
+
+            function initializeStyleDependentLayers() {
+                const style = map.getStyle();
+                if (!style || !Array.isArray(style.layers)) {
+                    return;
+                }
+                debugMap('style-ready', {
+                    styleInitialized: styleInitialized,
+                    sources: style.sources ? Object.keys(style.sources).length : 0,
+                    layers: style.layers.length,
+                    offlineFallback: usingOfflineFallback,
+                    basemapIndex: basemapIndex
+                });
+                try {
+                    ensureMapLayers();
+                    if (!styleInitialized) {
+                        applyInitialViewport();
+                        styleInitialized = true;
+                    }
+                    redrawMapLayers();
+                    mapReady = true;
+                    setMapVisualState(usingOfflineFallback ? 'fallback' : 'ready');
+                } catch (error) {
+                    debugMap('style-init-retry', {
+                        message: error && error.message ? error.message : String(error)
+                    });
+                }
+            }
+
+            map.on('load', function () {
+                debugMap('load', {
+                    width: mapElement.clientWidth,
+                    height: mapElement.clientHeight
+                });
+                initializeStyleDependentLayers();
+            });
+
+            map.on('styledata', function () {
+                initializeStyleDependentLayers();
+            });
+
+            map.on('error', function (event) {
+                const error = event && event.error ? event.error : null;
+                const message = error && error.message ? error.message : '';
+                debugMap('error', {
+                    message: message,
+                    sourceId: event && event.sourceId ? event.sourceId : null,
+                    tile: event && event.tile ? true : false
+                });
+                if (message && /(ERR_NAME_NOT_RESOLVED|Failed to fetch|NetworkError|fetch)/i.test(message)) {
+                    tileFailureCount += 1;
+                }
+                if (!usingOfflineFallback && tileFailureCount >= 2) {
+                    rotateBasemap(message || 'network-error');
+                }
+            });
+
+            window.addEventListener('resize', function () {
+                map.resize();
+                if (mapReady) {
+                    redrawMapLayers();
+                }
+            });
+
+            map.on('zoomend', function () {
+                if (mapReady) {
+                    redrawMapLayers();
+                }
+            });
+            map.on('moveend', function () {
+                if (mapReady) {
+                    redrawMapLayers();
+                }
+            });
+        })();
+    </script>
 </body>
 </html>

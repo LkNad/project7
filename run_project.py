@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from backend.DataFetcher import refresh_database
+from backend.DataFetcher import DataFetcher
 from backend.config import DEFAULT_DB_PATH, resolve_path
 from main.app import create_app
 
@@ -22,8 +23,6 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def _default_source() -> str:
-    if DEFAULT_SAMPLE_SOURCE.exists():
-        return str(DEFAULT_SAMPLE_SOURCE.relative_to(PROJECT_ROOT))
     return "test://default"
 
 
@@ -32,19 +31,8 @@ def _resolve_db_path(db_path: str | None) -> Path:
 
 
 def _database_has_records(db_path: Path) -> bool:
-    if not db_path.exists():
-        return False
-
     try:
-        with sqlite3.connect(db_path) as connection:
-            table_exists = connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='listings'"
-            ).fetchone()
-            if not table_exists:
-                return False
-
-            row = connection.execute("SELECT COUNT(*) FROM listings").fetchone()
-            return bool(row and row[0] > 0)
+        return DataFetcher(db_path=str(db_path)).has_any_listings()
     except sqlite3.Error:
         return False
 
@@ -54,6 +42,16 @@ def _bootstrap_database(db_path: Path, source: str | None, reset: bool) -> None:
     refresh_database(source=effective_source, db_path=str(db_path), reset=reset)
     print(f"[run_project] База подготовлена: {db_path}")
     print(f"[run_project] Источник данных: {effective_source}")
+
+
+def _ensure_runtime_database(db_path: Path, source: str | None) -> None:
+    effective_source = source or _default_source()
+    changed = DataFetcher(source=effective_source, db_path=str(db_path)).ensure_runtime_database(
+        source=effective_source,
+        bootstrap_if_empty=True,
+    )
+    if changed:
+        print(f"[run_project] Выполнена проверка совместимости/автопочинка БД: {db_path}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -112,6 +110,7 @@ def main() -> None:
     if args.skip_bootstrap:
         print(f"[run_project] Автоподготовка базы пропущена. Используется: {db_path}")
     else:
+        _ensure_runtime_database(db_path, args.source)
         should_bootstrap = args.reset_db or not _database_has_records(db_path)
         if should_bootstrap:
             _bootstrap_database(db_path, args.source, reset=True)

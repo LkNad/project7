@@ -27,6 +27,14 @@ def populated_db_path(tmp_path, sample_html_path):
 
 
 @pytest.fixture
+def demo_db_path(tmp_path):
+    db_path = tmp_path / "demo_data.db"
+    fetcher = DataFetcher(source="test://default", db_path=str(db_path))
+    fetcher.refresh_database(reset=True)
+    return db_path
+
+
+@pytest.fixture
 def empty_db_path(tmp_path):
     db_path = tmp_path / "empty.db"
     fetcher = DataFetcher(db_path=str(db_path))
