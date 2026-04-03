@@ -13,6 +13,35 @@ def _average(values):
     return round(sum(values) / len(values), 2) if values else 0.0
 
 
+DEFAULT_OBJECT_WEIGHTS = {
+    "value": 0.30,
+    "transport": 0.25,
+    "infra": 0.20,
+    "fit": 0.15,
+    "district_bonus": 0.10,
+}
+
+DEFAULT_DISTRICT_WEIGHTS = {
+    "object": 0.35,
+    "transport": 0.20,
+    "infra": 0.20,
+    "family": 0.15,
+    "investment": 0.10,
+}
+
+
+def _normalize_weights(values, defaults):
+    raw = {}
+    for key, default in defaults.items():
+        try:
+            value = float((values or {}).get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        raw[key] = max(value, 0.0)
+    total = sum(raw.values()) or sum(defaults.values()) or 1.0
+    return {key: raw[key] / total for key in raw}
+
+
 def _percentile_position(value, series):
     valid = sorted(item for item in series if item is not None)
     if not valid:
@@ -45,6 +74,8 @@ def _district_profile(family_score, investment_score, transport_score):
 
 def build_market_context(listings, filters=None):
     filters = filters or {}
+    object_weights = _normalize_weights(filters.get("score_weights"), DEFAULT_OBJECT_WEIGHTS)
+    district_weights = _normalize_weights(filters.get("district_score_weights"), DEFAULT_DISTRICT_WEIGHTS)
     by_district = defaultdict(list)
     prices = []
     price_per_m2_values = []
@@ -69,6 +100,8 @@ def build_market_context(listings, filters=None):
         "all_metro_times": metro_times,
         "all_areas": areas,
         "districts": by_district,
+        "object_weights": object_weights,
+        "district_weights": district_weights,
         "global_median_price": median(prices) if prices else 0,
         "global_median_ppm2": median(price_per_m2_values) if price_per_m2_values else 0,
         "global_median_metro": median(metro_times) if metro_times else 15,
@@ -166,6 +199,7 @@ def _fit_score(listing, filters):
 
 def build_districts(enriched_listings, filters=None):
     filters = filters or {}
+    district_weights = _normalize_weights(filters.get("district_score_weights"), DEFAULT_DISTRICT_WEIGHTS)
     grouped = defaultdict(list)
     for listing in enriched_listings:
         grouped[listing["district"]].append(listing)
@@ -184,11 +218,11 @@ def build_districts(enriched_listings, filters=None):
         object_score = _average([item["scores"]["object_score"] for item in items])
         budget_fit_score = _clamp(100 - (avg_price / budget_max) * 100, 20, 95) if budget_max else 70
         district_score = _clamp(
-            object_score * 0.35
-            + transport_score * 0.2
-            + infra_score * 0.2
-            + family_score * 0.15
-            + investment_score * 0.1
+            object_score * district_weights["object"]
+            + transport_score * district_weights["transport"]
+            + infra_score * district_weights["infra"]
+            + family_score * district_weights["family"]
+            + investment_score * district_weights["investment"]
         )
         highlights = []
         if transport_score >= 75:
@@ -219,6 +253,7 @@ def build_districts(enriched_listings, filters=None):
                 "quality_band": _quality_band(district_score),
                 "profile_label": _district_profile(family_score, investment_score, transport_score),
                 "highlights": highlights,
+                "score_weights": district_weights,
             }
         )
 
@@ -264,12 +299,14 @@ def _recommendation_reasons(listing, district_entry, district_listings, filters,
 def enrich_listings(listings, filters=None):
     filters = filters or {}
     context = build_market_context(listings, filters)
+    object_weights = context["object_weights"]
     enriched = []
     district_index = {}
 
     for district_name, items in context["districts"].items():
+        district_ppm2_values = [item.get("price_per_m2", 0) for item in items if item.get("price_per_m2")]
         district_index[district_name] = {
-            "median_ppm2": median([item.get("price_per_m2", 0) for item in items if item.get("price_per_m2")]) if items else 0,
+            "median_ppm2": median(district_ppm2_values) if district_ppm2_values else 0,
             "items": items,
         }
 
@@ -297,11 +334,11 @@ def enrich_listings(listings, filters=None):
         )
         district_bonus = _clamp((transport_score * 0.4) + (infra_score * 0.6))
         object_score = _clamp(
-            value_score * 0.30
-            + transport_score * 0.25
-            + infra_score * 0.20
-            + fit_score * 0.15
-            + district_bonus * 0.10
+            value_score * object_weights["value"]
+            + transport_score * object_weights["transport"]
+            + infra_score * object_weights["infra"]
+            + fit_score * object_weights["fit"]
+            + district_bonus * object_weights["district_bonus"]
         )
 
         enriched.append(
@@ -319,6 +356,7 @@ def enrich_listings(listings, filters=None):
                     "quality_signal": quality_signal,
                     "district_bonus": district_bonus,
                 },
+                "score_weights": object_weights,
             }
         )
 

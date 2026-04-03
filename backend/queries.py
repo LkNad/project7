@@ -94,6 +94,25 @@ DISTRICT_COLUMNS = """
     updated_at
 """
 
+SAVED_LIST_COLUMN_DEFINITIONS = {
+    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "visitor_id": "TEXT NOT NULL",
+    "listing_id": "INTEGER NOT NULL",
+    "listing_key": "TEXT NOT NULL DEFAULT ''",
+    "list_type": "TEXT NOT NULL",
+    "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+}
+
+PRICE_SNAPSHOT_COLUMN_DEFINITIONS = {
+    "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+    "snapshot_key": "TEXT NOT NULL",
+    "address": "TEXT NOT NULL",
+    "district": "TEXT NOT NULL",
+    "price": "REAL NOT NULL DEFAULT 0",
+    "source": "TEXT DEFAULT ''",
+    "captured_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+}
+
 CREATE_TABLE_LISTINGS = """
 CREATE TABLE IF NOT EXISTS listings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,6 +161,30 @@ CREATE TABLE IF NOT EXISTS districts (
     profile_label TEXT NOT NULL DEFAULT '',
     highlights TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+CREATE_TABLE_SAVED_LISTS = """
+CREATE TABLE IF NOT EXISTS saved_lists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visitor_id TEXT NOT NULL,
+    listing_id INTEGER NOT NULL,
+    listing_key TEXT NOT NULL DEFAULT '',
+    list_type TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(visitor_id, listing_key, list_type)
+);
+"""
+
+CREATE_TABLE_PRICE_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS listing_price_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_key TEXT NOT NULL,
+    address TEXT NOT NULL,
+    district TEXT NOT NULL,
+    price REAL NOT NULL DEFAULT 0,
+    source TEXT DEFAULT '',
+    captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
 

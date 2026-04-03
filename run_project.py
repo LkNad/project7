@@ -7,7 +7,7 @@ from pathlib import Path
 
 from backend.DataFetcher import refresh_database
 from backend.DataFetcher import DataFetcher
-from backend.config import DEFAULT_DB_PATH, resolve_path
+from backend.config import DEFAULT_DB_PATH, DEFAULT_RUNTIME_SOURCE, resolve_path
 from main.app import create_app
 
 
@@ -23,7 +23,7 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def _default_source() -> str:
-    return "test://default"
+    return str(DEFAULT_RUNTIME_SOURCE)
 
 
 def _resolve_db_path(db_path: str | None) -> Path:
@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--source",
         default=None,
-        help="Источник для первичной загрузки данных: HTML-файл, URL или test://default.",
+        help="Источник для первичной загрузки данных: HTML/CSV-файл, URL или test://default.",
     )
     parser.add_argument(
         "--reset-db",

@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import logging
+import csv
 import hashlib
+import json
+import math
 import sqlite3
 from pathlib import Path
 import re
+import time
+from typing import cast
+from io import StringIO
 from urllib.parse import urljoin, urlparse
 
 import chardet
@@ -17,12 +23,16 @@ from backend.Listing import Listing
 from backend.queries import (
     CREATE_TABLE_DISTRICTS,
     CREATE_TABLE_LISTINGS,
+    CREATE_TABLE_PRICE_SNAPSHOTS,
+    CREATE_TABLE_SAVED_LISTS,
     DELETE_DISTRICTS,
     DISTRICT_COLUMN_DEFINITIONS,
     DROP_TABLE_DISTRICTS,
     DROP_TABLE_LISTINGS,
     INSERT_LISTING,
     LISTING_COLUMN_DEFINITIONS,
+    PRICE_SNAPSHOT_COLUMN_DEFINITIONS,
+    SAVED_LIST_COLUMN_DEFINITIONS,
     UPSERT_DISTRICT,
 )
 from backend.scoring.engine import enrich_listings
@@ -41,7 +51,96 @@ DISTRICT_CENTROIDS = {
     "Измайлово": (55.7906, 37.7819),
 }
 
+DISTRICT_NAME_ALIASES = {
+    "Медведково Северное": "Северное Медведково",
+    "Теплый Стан": "Теплый Стан",
+    "Хорошево-Мневники": "Хорошево-Мневники",
+    "Хорошевский": "Хорошевский",
+    "Черемушки": "Черемушки",
+    "Бирюлево Восточное": "Бирюлево Восточное",
+}
+
+DISTRICT_GEOJSON_PATH = Path(__file__).resolve().parent.parent / "frontend" / "static" / "data" / "districts.geojson"
+
 DIRTY_ADDRESS_RE = re.compile(r"^(nan|none|null|не указано|адрес не указан|без адреса|—|-|\d+)$", re.IGNORECASE)
+HOUSE_NUMBER_RE = re.compile(r",\s*(\d+[а-яa-z0-9/-]*)", re.IGNORECASE)
+ADDRESS_PREFIX_RE = re.compile(r"^Москва,\s*(?:[А-ЯЁ]{2,5}|ТиНАО|ЗелАО),\s*", re.IGNORECASE)
+MOSCOW_FALLBACK_CENTROID = (55.751244, 37.618423)
+
+
+def _stable_hash(value: str) -> int:
+    return sum((index + 1) * ord(char) for index, char in enumerate(value))
+
+
+def _extract_street_name(address: str) -> str:
+    parts = [part.strip() for part in str(address or "").split(",") if part.strip()]
+    if len(parts) >= 2:
+        return parts[-2]
+    return str(address or "")
+
+
+def _extract_house_number(address: str) -> int:
+    match = HOUSE_NUMBER_RE.search(str(address or ""))
+    if not match:
+        return 1
+    digits = re.search(r"\d+", match.group(1))
+    return int(digits.group()) if digits else 1
+
+
+def _snapshot_signature(item: dict[str, object]) -> str:
+    address = " ".join(str(item.get("address") or "").lower().split())
+    district = " ".join(str(item.get("district") or "").lower().split())
+    price_value = str(item.get("price") or 0).replace(" ", "").replace(",", ".")
+    rooms_tokens = str(item.get("rooms") or "0").split()
+    price = round(float(price_value), -4)
+    rooms = int(rooms_tokens[0]) if rooms_tokens else 0
+    return f"{address}|{district}|{price}|{rooms}"
+
+
+def _normalize_district_name(name: str) -> str:
+    normalized = " ".join(str(name or "").replace("ё", "е").split()).strip().lower()
+    alias = DISTRICT_NAME_ALIASES.get(" ".join(str(name or "").split()).strip(), None)
+    if alias:
+        normalized = " ".join(alias.replace("ё", "е").split()).strip().lower()
+    return normalized
+
+
+def _iter_geometry_points(coordinates):
+    if not isinstance(coordinates, list):
+        return
+    if coordinates and isinstance(coordinates[0], (int, float)) and len(coordinates) >= 2:
+        yield coordinates[0], coordinates[1]
+        return
+    for item in coordinates:
+        yield from _iter_geometry_points(item)
+
+
+def _load_district_geojson_centroids() -> dict[str, tuple[float, float]]:
+    if not DISTRICT_GEOJSON_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(DISTRICT_GEOJSON_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    features = payload.get("features") if isinstance(payload, dict) else None
+    if not isinstance(features, list):
+        return {}
+    centroids = {}
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        props = feature.get("properties") or {}
+        district_name = props.get("district") or props.get("NAME") or props.get("name")
+        normalized_name = _normalize_district_name(str(district_name or ""))
+        if not normalized_name:
+            continue
+        points = list(_iter_geometry_points((feature.get("geometry") or {}).get("coordinates")))
+        if not points:
+            continue
+        lon = sum(point[0] for point in points) / len(points)
+        lat = sum(point[1] for point in points) / len(points)
+        centroids[normalized_name] = (lat, lon)
+    return centroids
 
 
 def _build_demo_dataset() -> dict:
@@ -217,8 +316,6 @@ def _build_demo_dataset() -> dict:
             elif item_index % 7 == 0:
                 ppm2 *= 1.08
             price = round(ppm2 * area, -3)
-            lat = round(profile["lat"] + ((item_index % 5) - 2) * 0.0044 + district_index * 0.0003, 6)
-            lon = round(profile["lon"] + (((item_index // 5) % 5) - 2) * 0.0051 + district_index * 0.0002, 6)
             street = profile["streets"][item_index % len(profile["streets"])]
             house = 4 + item_index * 2 + district_index
             metro_time = max(3, profile["metro_time"] + ((item_index % 4) - 1))
@@ -237,8 +334,8 @@ def _build_demo_dataset() -> dict:
                 "price": price,
                 "rooms": rooms,
                 "district": profile["district"],
-                "lat": lat,
-                "lon": lon,
+                "lat": 0.0,
+                "lon": 0.0,
                 "area": area,
                 "floor": floor,
                 "total_floors": total_floors,
@@ -253,7 +350,7 @@ def _build_demo_dataset() -> dict:
             }
             demo_items.append(item)
             html_blocks.append(
-                f"<article class='offer-item' data-lat='{lat}' data-lon='{lon}'>"
+                "<article class='offer-item'>"
                 f"<a class='offer-link' href='{url}'>{title}</a>"
                 f"<span class='address'>{address}</span>"
                 f"<span class='price'>{int(price):,} ₽</span>"
@@ -306,6 +403,27 @@ class DataFetcher:
         self.timeout = timeout or self.config.request_timeout
         self.test_dataset_name = test_dataset_name or self.config.test_dataset_name
         self.session = session or requests.Session()
+        self._last_geocode_request_at = 0.0
+        self._remote_geocoder_blocked_until = 0.0
+        self._district_centroids = {
+            _normalize_district_name(name): coords for name, coords in DISTRICT_CENTROIDS.items()
+        }
+        self._district_centroids.update(_load_district_geojson_centroids())
+
+    def _remote_geocoder_available(self) -> bool:
+        if not self.config.remote_geocoding_enabled:
+            return False
+        return time.monotonic() >= self._remote_geocoder_blocked_until
+
+    def _block_remote_geocoder(self, retry_after: float | None = None) -> None:
+        backoff_seconds = max(float(retry_after or 0), 0.0) or 300.0
+        blocked_until = time.monotonic() + backoff_seconds
+        if blocked_until > self._remote_geocoder_blocked_until:
+            self._remote_geocoder_blocked_until = blocked_until
+        LOGGER.warning(
+            "Remote geocoder temporarily disabled for %.0f seconds after rate limit",
+            backoff_seconds,
+        )
 
     def detect_encoding(self, file_path: str | Path) -> str:
         """Определяет кодировку файла."""
@@ -327,6 +445,7 @@ class DataFetcher:
         cleaned = re.sub(r"\bг\.?\s*москва\b", "Москва", cleaned, flags=re.IGNORECASE)
         if cleaned and not cleaned.lower().startswith("москва"):
             cleaned = f"Москва, {cleaned}"
+        cleaned = ADDRESS_PREFIX_RE.sub("Москва, ", cleaned)
         return cleaned
 
     @staticmethod
@@ -334,15 +453,128 @@ class DataFetcher:
         normalized = " ".join(str(district or "").split()).strip()
         return normalized or "Неизвестный"
 
+    def _get_district_centroid(self, district: str) -> tuple[float, float]:
+        normalized_district = _normalize_district_name(self.normalize_district(district))
+        if normalized_district in self._district_centroids:
+            return self._district_centroids[normalized_district]
+
+        district_query = self.normalize_district(district)
+        if district_query and district_query != "Неизвестный" and self._remote_geocoder_available():
+            remote_hint = self._request_remote_geocoder_raw(f"Москва, район {district_query}")
+            if remote_hint:
+                coords = (remote_hint["lat"], remote_hint["lon"])
+                self._district_centroids[normalized_district] = coords
+                return coords
+            remote_hint = self._request_remote_geocoder_raw(f"Москва, {district_query}")
+            if remote_hint:
+                coords = (remote_hint["lat"], remote_hint["lon"])
+                self._district_centroids[normalized_district] = coords
+                return coords
+        return MOSCOW_FALLBACK_CENTROID
+
+    def _build_geocoder_queries(self, address: str, district: str) -> list[str]:
+        normalized_address = self.normalize_address(address)
+        district_name = self.normalize_district(district)
+        queries = []
+        if normalized_address:
+            queries.append(normalized_address)
+            if district_name and district_name != "Неизвестный" and district_name not in normalized_address:
+                street_part = normalized_address.replace("Москва, ", "", 1)
+                queries.append(f"Москва, район {district_name}, {street_part}")
+                queries.append(f"Москва, {district_name}, {street_part}")
+        deduped = []
+        for query in queries:
+            if query not in deduped:
+                deduped.append(query)
+        return deduped
+
+    def _request_remote_geocoder_raw(self, query: str) -> dict | None:
+        if not self._remote_geocoder_available():
+            return None
+        normalized_query = self.normalize_address(query)
+        if not normalized_query:
+            return None
+
+        elapsed = time.monotonic() - self._last_geocode_request_at
+        min_delay = max(float(self.config.geocoder_min_delay or 0), 0.0)
+        if self._last_geocode_request_at and elapsed < min_delay:
+            time.sleep(min_delay - elapsed)
+
+        params = {
+            "q": normalized_query,
+            "format": "jsonv2",
+            "limit": 1,
+            "countrycodes": "ru",
+            "accept-language": "ru",
+            "addressdetails": 1,
+        }
+        if self.config.geocoder_email:
+            params["email"] = self.config.geocoder_email
+
+        try:
+            response = self.session.get(
+                self.config.geocoder_endpoint,
+                params=params,
+                headers={"User-Agent": "MephiJunior/1.0 (address geocoding)"},
+                timeout=max(self.timeout, 15.0),
+            )
+            self._last_geocode_request_at = time.monotonic()
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    retry_after_value = float(retry_after) if retry_after else None
+                except (TypeError, ValueError):
+                    retry_after_value = None
+                self._block_remote_geocoder(retry_after_value)
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as error:
+            LOGGER.warning("Remote geocoder failed for %s: %s", normalized_query, error)
+            return None
+
+        if not isinstance(payload, list) or not payload:
+            return None
+
+        first = payload[0]
+        try:
+            lat = round(float(first.get("lat") or 0.0), 6)
+            lon = round(float(first.get("lon") or 0.0), 6)
+        except (TypeError, ValueError):
+            return None
+        if not lat or not lon:
+            return None
+        importance = first.get("importance", 0.75)
+        confidence = 0.88
+        if isinstance(importance, (int, float, str)):
+            try:
+                confidence = max(0.55, min(float(importance), 0.98))
+            except ValueError:
+                confidence = 0.88
+        return {
+            "lat": lat,
+            "lon": lon,
+            "geocode_status": "geocoded",
+            "geocode_source": "nominatim",
+            "geocode_confidence": confidence,
+            "map_point": f"{lat:.6f},{lon:.6f}",
+        }
+
+    def _is_result_plausible(self, geocoded: dict | None, district: str) -> bool:
+        if not geocoded:
+            return False
+        district_name = self.normalize_district(district)
+        if district_name == "Неизвестный":
+            return True
+        district_lat, district_lon = self._get_district_centroid(district_name)
+        distance = math.sqrt((float(geocoded["lat"]) - district_lat) ** 2 + (float(geocoded["lon"]) - district_lon) ** 2)
+        return distance <= 0.18
+
     def _validate_address_quality(self, address: str, district: str) -> tuple[bool, str]:
         normalized_address = self.normalize_address(address)
-        normalized_district = self.normalize_district(district)
         if not normalized_address or DIRTY_ADDRESS_RE.match(normalized_address):
             return False, "invalid"
         if len(normalized_address) < 10 or "," not in normalized_address:
             return False, "dirty"
-        if normalized_district != "Неизвестный" and normalized_district not in DISTRICT_CENTROIDS:
-            return False, "district_mismatch"
         return True, "pending"
 
     def _load_geocode_cache(self, conn: sqlite3.Connection | None) -> dict[str, dict[str, object]]:
@@ -369,15 +601,47 @@ class DataFetcher:
             }
         return cache
 
-    def _request_geocoder(self, address: str, district: str) -> dict | None:
-        centroid = DISTRICT_CENTROIDS.get(self.normalize_district(district))
-        if not centroid:
+    def _request_remote_geocoder(self, address: str, district: str) -> dict | None:
+        if not self._remote_geocoder_available():
             return None
-        digest = hashlib.sha256(address.encode("utf-8")).hexdigest()
-        lat_offset = ((int(digest[:6], 16) % 1000) / 1000 - 0.5) * 0.018
-        lon_offset = ((int(digest[6:12], 16) % 1000) / 1000 - 0.5) * 0.022
-        lat = round(centroid[0] + lat_offset, 6)
-        lon = round(centroid[1] + lon_offset, 6)
+        for query in self._build_geocoder_queries(address, district):
+            geocoded = self._request_remote_geocoder_raw(query)
+            if geocoded and self._is_result_plausible(geocoded, district):
+                return geocoded
+            if geocoded:
+                LOGGER.warning(
+                    "Remote geocoder returned implausible point for %s (%s): %s,%s",
+                    address,
+                    district,
+                    geocoded.get("lat"),
+                    geocoded.get("lon"),
+                )
+        return None
+
+    def _request_fallback_geocoder(self, address: str, district: str) -> dict | None:
+        centroid = self._get_district_centroid(district)
+        normalized_address = self.normalize_address(address)
+        street_name = _extract_street_name(normalized_address)
+        house_number = _extract_house_number(normalized_address)
+        street_seed = _stable_hash(street_name)
+        address_digest = hashlib.sha256(normalized_address.encode("utf-8")).hexdigest()
+
+        angle = math.radians(street_seed % 360)
+        radial_distance_km = 0.45 + ((street_seed % 23) / 23) * 1.55
+        along_street_km = ((house_number % 80) - 40) * 0.028
+        side_shift_km = (((int(address_digest[:4], 16) % 9) - 4) * 0.018)
+
+        base_lat = centroid[0] + (radial_distance_km / 111.0) * math.sin(angle)
+        base_lon = centroid[1] + (radial_distance_km / (111.0 * max(math.cos(math.radians(centroid[0])), 0.35))) * math.cos(angle)
+
+        direction_lat = math.sin(angle)
+        direction_lon = math.cos(angle)
+        normal_lat = math.sin(angle + math.pi / 2)
+        normal_lon = math.cos(angle + math.pi / 2)
+        lon_scale = max(math.cos(math.radians(base_lat)), 0.35)
+
+        lat = round(base_lat + (along_street_km / 111.0) * direction_lat + (side_shift_km / 111.0) * normal_lat, 6)
+        lon = round(base_lon + (along_street_km / (111.0 * lon_scale)) * direction_lon + (side_shift_km / (111.0 * lon_scale)) * normal_lon, 6)
         confidence = 0.92 if any(char.isdigit() for char in address) else 0.77
         return {
             "lat": lat,
@@ -388,13 +652,30 @@ class DataFetcher:
             "map_point": f"{lat:.6f},{lon:.6f}",
         }
 
+    def _request_geocoder(self, address: str, district: str) -> dict | None:
+        remote_result = self._request_remote_geocoder(address, district)
+        if remote_result:
+            return remote_result
+        return self._request_fallback_geocoder(address, district)
+
     def _apply_geocoding_pipeline(self, raw_items: list[dict], conn: sqlite3.Connection | None = None) -> list[dict]:
         cache = self._load_geocode_cache(conn)
         processed = []
         seen = set()
+        total_items = len(raw_items)
+        remote_success = 0
+        fallback_success = 0
+        cache_hits = 0
+        missing_count = 0
+
+        if total_items:
+            LOGGER.info("Запуск geocoding pipeline: %s адресов", total_items)
+
         for raw_item in raw_items:
             item = dict(raw_item)
-            item["district"] = self.normalize_district(item.get("district"))
+            if self.source_type == "test":
+                item["source"] = DEFAULT_TEST_SOURCE_NAME
+            item["district"] = self.normalize_district(str(item.get("district") or ""))
             item["address"] = self.normalize_address(item.get("address", ""))
             candidate = Listing.from_raw(item)
             dedupe_key = (candidate.address, candidate.price, candidate.rooms, candidate.district)
@@ -411,20 +692,26 @@ class DataFetcher:
                     "geocode_confidence": float(item.get("geocode_confidence") or 1.0),
                     "map_point": f"{candidate.lat:.6f},{candidate.lon:.6f}",
                 })
+                cache_hits += 1
                 processed.append(item)
                 continue
 
             quality_ok, status = self._validate_address_quality(item.get("address", ""), item.get("district", ""))
             cached = cache.get(item.get("address", ""))
             if cached and cached.get("lat") and cached.get("lon"):
+                cached_confidence = cached.get("geocode_confidence", 0.7)
+                if not isinstance(cached_confidence, (int, float, str)):
+                    cached_confidence = 0.7
+                cached_confidence_value = cast(int | float | str, cached_confidence)
                 item.update({
-                    "lat": cached["lat"],
-                    "lon": cached["lon"],
-                    "geocode_status": "cached-fallback" if not quality_ok else "cached",
-                    "geocode_source": cached.get("geocode_source") or "db-cache",
-                    "geocode_confidence": float(cached.get("geocode_confidence") or 0.7),
-                    "map_point": f"{cached['lat']:.6f},{cached['lon']:.6f}",
-                })
+                        "lat": cached["lat"],
+                        "lon": cached["lon"],
+                        "geocode_status": "cached-fallback" if not quality_ok else "cached",
+                        "geocode_source": cached.get("geocode_source") or "db-cache",
+                        "geocode_confidence": float(cached_confidence_value or 0.7),
+                        "map_point": f"{cached['lat']:.6f},{cached['lon']:.6f}",
+                    })
+                cache_hits += 1
                 processed.append(item)
                 continue
 
@@ -437,12 +724,19 @@ class DataFetcher:
                     "geocode_confidence": 0.0,
                     "map_point": "",
                 })
+                missing_count += 1
                 processed.append(item)
                 continue
 
             geocoded = self._request_geocoder(item["address"], item["district"])
             if geocoded:
                 item.update(geocoded)
+                if geocoded.get("geocode_source") == "nominatim":
+                    remote_success += 1
+                    if remote_success == 1 or remote_success % 10 == 0:
+                        LOGGER.info("Remote geocoding: %s/%s", remote_success, total_items)
+                elif geocoded.get("geocode_source") == "deterministic-local":
+                    fallback_success += 1
             else:
                 item.update({
                     "lat": 0.0,
@@ -452,7 +746,16 @@ class DataFetcher:
                     "geocode_confidence": 0.0,
                     "map_point": "",
                 })
+                missing_count += 1
             processed.append(item)
+        if total_items:
+            LOGGER.info(
+                "Geocoding завершен: cache=%s remote=%s fallback=%s missing=%s",
+                cache_hits,
+                remote_success,
+                fallback_success,
+                missing_count,
+            )
         return processed
 
     @staticmethod
@@ -465,15 +768,17 @@ class DataFetcher:
             return "url"
         if parsed.scheme == "test":
             return "test"
+        if Path(source).suffix.lower() in {".csv"}:
+            return "csv"
         if Path(source).suffix.lower() in {".html", ".htm", ".txt"} or Path(source).exists():
             return "file"
         return "test"
 
     def fetch(self) -> str | None:
-        """Получает HTML из локального файла, URL или тестового набора."""
-        if self.source_type == "file":
+        """Получает данные из локального файла, URL или тестового набора."""
+        if self.source_type in {"file", "csv"}:
             file_path = resolve_path(self.source)
-            LOGGER.info("Чтение локального HTML-источника: %s", file_path)
+            LOGGER.info("Чтение локального источника %s: %s", self.source_type, file_path)
             if not file_path.exists() or not file_path.is_file():
                 LOGGER.error("Локальный источник не найден: %s", file_path)
                 return None
@@ -485,7 +790,7 @@ class DataFetcher:
                     if not content.strip():
                         LOGGER.warning("Локальный источник пуст: %s", file_path)
                         return None
-                    LOGGER.info("Локальный HTML успешно прочитан, размер: %s символов", len(content))
+                    LOGGER.info("Локальный источник успешно прочитан, размер: %s символов", len(content))
                     return content
             except OSError as error:
                 LOGGER.exception("Ошибка при чтении файла %s: %s", file_path, error)
@@ -519,13 +824,16 @@ class DataFetcher:
         return dataset.get("html")
 
     def parse(self, html: str | None) -> list[dict]:
-        """Извлекает данные из HTML или встроенного тестового набора."""
+        """Извлекает данные из HTML/CSV или встроенного тестового набора."""
         if self.source_type == "test":
             _, dataset = _resolve_test_dataset(self.source, self.test_dataset_name)
             if dataset and dataset.get("items"):
                 listings = self._normalize_listings(dataset["items"])
                 LOGGER.info("Загружено %s записей из тестового датасета", len(listings))
                 return listings
+
+        if self.source_type == "csv":
+            return self._parse_csv(html)
 
         if not html or not html.strip():
             LOGGER.warning("parse() получил пустой HTML-контент")
@@ -559,6 +867,42 @@ class DataFetcher:
                 listings.append(fallback_listing.to_dict())
 
         LOGGER.info("Всего найдено %s объявлений", len(listings))
+        return listings
+
+    def _parse_csv(self, raw_text: str | None) -> list[dict]:
+        if not raw_text or not raw_text.strip():
+            LOGGER.warning("CSV-источник пуст")
+            return []
+
+        reader = csv.DictReader(StringIO(raw_text))
+        rows = []
+        for row in reader:
+            if not row:
+                continue
+            payload = {
+                "id": row.get("id"),
+                "title": row.get("title", ""),
+                "address": row.get("address") or row.get("addres") or "",
+                "district": row.get("district", ""),
+                "price": row.get("price", 0),
+                "area": row.get("area", 0),
+                "rooms": row.get("rooms", 0),
+                "floor": row.get("floor"),
+                "total_floors": row.get("total_floors"),
+                "url": row.get("url") or row.get("source_url") or "",
+                "image_url": row.get("image_url", ""),
+                "description": row.get("description", ""),
+                "deal_type": row.get("deal_type") or "sale",
+                "building_type": row.get("building_type") or "Не указано",
+                "metro_station": row.get("metro_station") or "",
+                "metro_time_min": row.get("metro_time_min") or row.get("metro_time_minutes"),
+                "created_at": row.get("created_at"),
+                "source": self.source,
+            }
+            rows.append(payload)
+
+        listings = self._normalize_listings(rows)
+        LOGGER.info("Загружено %s записей из CSV-источника", len(listings))
         return listings
 
     @staticmethod
@@ -797,6 +1141,31 @@ class DataFetcher:
         rows = conn.execute("SELECT * FROM listings ORDER BY created_at DESC, id DESC").fetchall()
         return [Listing.from_row(row).to_dict() for row in rows]
 
+    def _record_price_snapshots(self, conn: sqlite3.Connection, listings: list[dict]) -> None:
+        for item in listings:
+            conn.execute(
+                """
+                INSERT INTO listing_price_snapshots (snapshot_key, address, district, price, source, captured_at)
+                VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+                """,
+                (
+                    _snapshot_signature(item),
+                    item.get("address", ""),
+                    item.get("district", ""),
+                    item.get("price", 0),
+                    item.get("source", self.source),
+                    item.get("created_at"),
+                ),
+            )
+
+    def _backfill_price_snapshots(self, conn: sqlite3.Connection) -> None:
+        existing = conn.execute("SELECT COUNT(*) FROM listing_price_snapshots").fetchone()[0]
+        if existing:
+            return
+        listings = self._load_listings_from_connection(conn)
+        if listings:
+            self._record_price_snapshots(conn, listings)
+
     def _rebuild_districts(self, conn: sqlite3.Connection) -> None:
         self._ensure_table_columns(
             conn,
@@ -845,7 +1214,20 @@ class DataFetcher:
                 DISTRICT_COLUMN_DEFINITIONS,
                 create_sql=CREATE_TABLE_DISTRICTS,
             )
+            schema_changed |= self._ensure_table_columns(
+                conn,
+                "saved_lists",
+                SAVED_LIST_COLUMN_DEFINITIONS,
+                create_sql=CREATE_TABLE_SAVED_LISTS,
+            )
+            schema_changed |= self._ensure_table_columns(
+                conn,
+                "listing_price_snapshots",
+                PRICE_SNAPSHOT_COLUMN_DEFINITIONS,
+                create_sql=CREATE_TABLE_PRICE_SNAPSHOTS,
+            )
             self._backfill_listing_derived_fields(conn)
+            self._backfill_price_snapshots(conn)
             self._refresh_missing_coordinates(conn)
             self._rebuild_districts(conn)
             conn.commit()
@@ -862,26 +1244,64 @@ class DataFetcher:
 
     def _get_runtime_stats(self) -> dict[str, object]:
         if not Path(self.db_path).exists():
-            return {"listing_count": 0, "district_count": 0, "sources": set()}
+            return {
+                "listing_count": 0,
+                "district_count": 0,
+                "sources": set(),
+                "provided_geocodes": 0,
+                "deterministic_geocodes": 0,
+                "missing_geocodes": 0,
+            }
 
         with sqlite3.connect(self.db_path) as conn:
             if not self._table_exists(conn, "listings"):
-                return {"listing_count": 0, "district_count": 0, "sources": set()}
+                return {
+                    "listing_count": 0,
+                    "district_count": 0,
+                    "sources": set(),
+                    "provided_geocodes": 0,
+                    "deterministic_geocodes": 0,
+                    "missing_geocodes": 0,
+                }
 
             listing_count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
             district_count = conn.execute("SELECT COUNT(DISTINCT district) FROM listings").fetchone()[0]
             source_rows = conn.execute(
                 "SELECT DISTINCT COALESCE(NULLIF(source, ''), '__empty__') FROM listings"
             ).fetchall()
+            provided_geocodes = conn.execute(
+                "SELECT COUNT(*) FROM listings WHERE COALESCE(geocode_source, '') IN ('source-payload', 'provided')"
+            ).fetchone()[0]
+            deterministic_geocodes = conn.execute(
+                "SELECT COUNT(*) FROM listings WHERE COALESCE(geocode_source, '') = 'deterministic-local'"
+            ).fetchone()[0]
+            missing_geocodes = conn.execute(
+                "SELECT COUNT(*) FROM listings WHERE COALESCE(lat, 0) = 0 OR COALESCE(lon, 0) = 0"
+            ).fetchone()[0]
             return {
                 "listing_count": listing_count,
                 "district_count": district_count,
                 "sources": {row[0] for row in source_rows},
+                "provided_geocodes": provided_geocodes,
+                "deterministic_geocodes": deterministic_geocodes,
+                "missing_geocodes": missing_geocodes,
             }
 
     def _needs_test_dataset_refresh(self, source: str | None) -> bool:
         effective_source = source or self.source or self.test_dataset_name
-        if self._detect_source_type(effective_source) != "test":
+        effective_source_type = self._detect_source_type(effective_source)
+        if effective_source_type != "test":
+            stats = self._get_runtime_stats()
+            source_values = cast(set[str], stats["sources"] if isinstance(stats["sources"], set) else set())
+            expected_source = {str(effective_source)} if effective_source else set()
+            if source_values and expected_source and source_values != expected_source:
+                LOGGER.warning(
+                    "Runtime-БД %s использует источники %s вместо %s и будет пересобрана",
+                    self.db_path,
+                    sorted(list(source_values)),
+                    sorted(list(expected_source)),
+                )
+                return True
             return False
 
         dataset_key, dataset = _resolve_test_dataset(effective_source, self.test_dataset_name)
@@ -910,12 +1330,37 @@ class DataFetcher:
                 dataset_key,
             )
             return True
-        if stats["sources"] != {DEFAULT_TEST_SOURCE_NAME}:
+        expected_sources = {DEFAULT_TEST_SOURCE_NAME}
+        if effective_source:
+            expected_sources.add(str(effective_source))
+        source_values = cast(set[str], stats["sources"] if isinstance(stats["sources"], set) else set())
+        if source_values and not source_values.issubset(expected_sources):
             LOGGER.warning(
-                "Runtime-БД %s использует источники %s вместо %s",
+                "Runtime-БД %s использует источники %s вместо одного из допустимых %s",
                 self.db_path,
-                sorted(stats["sources"]),
-                DEFAULT_TEST_SOURCE_NAME,
+                sorted(list(source_values)),
+                sorted(list(expected_sources)),
+            )
+            return True
+        if stats.get("provided_geocodes", 0):
+            LOGGER.warning(
+                "Runtime-БД %s содержит %s точных source-payload координат и будет пересобрана для address-level geocoding",
+                self.db_path,
+                stats.get("provided_geocodes", 0),
+            )
+            return True
+        if self.config.remote_geocoding_enabled and stats.get("deterministic_geocodes", 0):
+            LOGGER.warning(
+                "Runtime-БД %s содержит %s fallback-координат и будет пересобрана через remote geocoder",
+                self.db_path,
+                stats.get("deterministic_geocodes", 0),
+            )
+            return True
+        if stats.get("missing_geocodes", 0):
+            LOGGER.warning(
+                "Runtime-БД %s содержит %s объектов без координат и будет пересобрана",
+                self.db_path,
+                stats.get("missing_geocodes", 0),
             )
             return True
         return False
@@ -963,6 +1408,7 @@ class DataFetcher:
                 if listing.validate():
                     cursor.execute(INSERT_LISTING, listing.to_db_tuple())
 
+            self._record_price_snapshots(conn, data)
             self._backfill_listing_derived_fields(conn)
             self._refresh_missing_coordinates(conn)
             self._rebuild_districts(conn)
@@ -985,6 +1431,7 @@ class DataFetcher:
                 listing = Listing.from_raw(item, source=self.source)
                 if listing.validate():
                     cur.execute(INSERT_LISTING, listing.to_db_tuple())
+            self._record_price_snapshots(conn, listings)
             self._backfill_listing_derived_fields(conn)
             self._refresh_missing_coordinates(conn)
             self._rebuild_districts(conn)

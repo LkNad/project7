@@ -96,6 +96,7 @@ def test_legacy_database_is_migrated_on_read(tmp_path):
         )
         conn.commit()
 
+    DataFetcher(db_path=str(db_path)).ensure_database_compatibility()
     rows, error = load_data_from_db(db_path=str(db_path))
 
     assert error is None

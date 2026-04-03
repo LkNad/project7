@@ -69,14 +69,14 @@ def test_build_page_context_for_empty_database(empty_db_path):
 
 def test_build_page_context_for_populated_database(demo_db_path):
     context = build_page_context(
-        form={"price_min": "10000000", "price_max": "20000000", "chart_type": "table", "action": "apply_filters"},
+        form={"price_min": "10000000", "price_max": "20000000", "chart_type": "bar", "action": "apply_filters"},
         db_path=str(demo_db_path),
     )
 
     assert context["status"]["kind"] == "success"
     assert context["total_count"] == 200
     assert context["results_count"] > 0
-    assert context["chart"]["type"] == "table"
+    assert context["chart"]["type"] == "bar"
     assert get_filter_options(context["listings"])["price_bounds"]["min"] >= 10_000_000
     assert context["listings"][0]["scores"]["object_score"] > 0
     assert context["districts"]

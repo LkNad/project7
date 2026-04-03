@@ -13,7 +13,7 @@
 
 ## Структура каталогов
 
-- [`app.py`](app.py) — WSGI entry point и локальный запуск Flask;
+- [`manage_data.py`](manage_data.py) — CLI для merge/clean/rebuild датасета и runtime-БД;
 - [`run_project.py`](run_project.py) — основной скрипт запуска приложения с автоподготовкой базы данных;
 - [`backend/`](backend/) — импорт, схема БД, модели и SQL-запросы;
 - [`frontend/`](frontend/) — фильтрация, подготовка контекста и шаблоны UI;
@@ -42,6 +42,9 @@ pip install -r requirements.txt
 - `MEPHI_DB_PATH` — путь к SQLite-файлу базы данных;
 - `MEPHI_REQUEST_TIMEOUT` — таймаут HTTP-запроса при импорте;
 - `MEPHI_TEST_DATASET` — имя встроенного тестового набора;
+- `MEPHI_REMOTE_GEOCODING` — включить внешний geocoder (`0` по умолчанию, рекомендуется для локальной разработки);
+- `MEPHI_GEOCODER_MIN_DELAY` — минимальная задержка между запросами к geocoder;
+- `MEPHI_GEOCODER_EMAIL` — email для controlled refresh через Nominatim;
 - `FLASK_HOST` — адрес Flask-сервера;
 - `FLASK_PORT` — порт Flask-сервера;
 - `FLASK_DEBUG` — режим отладки (`1`/`true` для включения);
@@ -52,6 +55,17 @@ pip install -r requirements.txt
 ## Инициализация и импорт данных
 
 Проект поддерживает импорт через [`backend.DataFetcher`](backend/DataFetcher.py).
+
+### Явный CLI для датасета и rebuild
+
+Локальная рекомендация: держать `MEPHI_REMOTE_GEOCODING=0` и использовать fallback-геокодинг. Remote geocoding включать только для controlled refresh.
+
+```bash
+python manage_data.py clean-csv --path sample_data/city_price_map_requests.csv
+python manage_data.py merge-csv --base sample_data/city_price_map_requests.csv --extra C:\path\to\new.csv
+python manage_data.py rebuild-db --source sample_data/city_price_map_requests.csv
+python manage_data.py rebuild-db --source sample_data/city_price_map_requests.csv --remote-geocoding
+```
 
 ### Встроенный тестовый набор
 
@@ -83,7 +97,13 @@ python -c "from backend.DataFetcher import refresh_database; refresh_database(so
 python run_project.py
 ```
 
-Скрипт [`run_project.py`](run_project.py) автоматически проверяет SQLite-базу и, если она пустая или отсутствует, загружает стартовые данные из [`sample_data/sample_listings.html`](sample_data/sample_listings.html).
+Скрипт [`run_project.py`](run_project.py) автоматически проверяет SQLite-базу и, если она пустая или отсутствует, загружает стартовые данные из [`sample_data/city_price_map_requests.csv`](sample_data/city_price_map_requests.csv).
+
+Для локальной разработки рекомендуется оставить внешний geocoding выключенным:
+
+```bash
+set MEPHI_REMOTE_GEOCODING=0 && python run_project.py
+```
 
 По умолчанию приложение стартует на `127.0.0.1:5000`. При необходимости:
 
@@ -137,13 +157,13 @@ pytest -q tests/test_app.py
 ### 1. Подготовить демонстрационную БД
 
 ```bash
-python -c "from backend.DataFetcher import refresh_database; refresh_database(source='sample_data/sample_listings.html', db_path='sample_data/demo.db', reset=True)"
+python manage_data.py rebuild-db --source sample_data/sample_listings.html --db-path sample_data/demo.db
 ```
 
 ### 2. Запустить приложение на этой БД
 
 ```bash
-set MEPHI_DB_PATH=sample_data/demo.db && python app.py
+set MEPHI_DB_PATH=sample_data/demo.db && set MEPHI_REMOTE_GEOCODING=0 && python run_project.py
 ```
 
 ### 3. Проверить UI
@@ -156,6 +176,7 @@ set MEPHI_DB_PATH=sample_data/demo.db && python app.py
 ## Поставляемые артефакты данных
 
 - [`sample_data/sample_listings.html`](sample_data/sample_listings.html) — воспроизводимый HTML-пример для импорта;
+- [`sample_data/city_price_map_requests.csv`](sample_data/city_price_map_requests.csv) — основной runtime-CSV после merge/clean;
 - [`tests/fixtures/sample_listings.html`](tests/fixtures/sample_listings.html) — тестовая HTML-фикстура;
 - встроенный набор `test://default` в [`backend/DataFetcher.py`](backend/DataFetcher.py).
 
