@@ -1,0 +1,13 @@
+{
+  "csv_district_count": 51,
+  "geojson_feature_count": 49,
+  "matched_district_count": 50,
+  "unmatched_districts": [
+    "Зеленоград"
+  ],
+  "notes": [
+    "GeoJSON облегчен и оставляет только районы, используемые в текущем CSV.",
+    "Часть районов сматчена через алиасы названий.",
+    "Зеленоград в текущем geojson районов Москвы отсутствует и остается на fallback-логике."
+  ]
+}

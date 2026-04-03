@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="analytics-page-body">
+    <div class="page-shell map-first-shell">
+        <div class="container analytics-page-container">
+            {% if listing %}
+            <section class="premium-panel analytics-header detail-hero-panel">
+                <div class="analytics-hero-compact detail-hero-grid">
+                    <div class="analytics-hero-copy">
+                        <span class="section-kicker">Карточка объекта</span>
+                        <h3>{{ listing.title }}</h3>
+                        <p class="section-note">{{ listing.address }}</p>
+                        <div class="detail-hero-metrics">
+                            <span>{{ "{:,.0f}".format(listing.price).replace(",", " ") }} ₽</span>
+                            <span>{{ "{:,.0f}".format(listing.price_per_m2).replace(",", " ") }} ₽/м²</span>
+                            <span>уверенность {{ listing.confidence_score }}</span>
+                            <span>источник {{ listing.source_label }}</span>
+                            <span class="trust-{{ listing.trust_band }}">доверие {{ listing.source_trust_score }}</span>
+                            <span class="freshness-{{ listing.freshness_bucket|replace('_', '-') }}">{{ listing.freshness_label }}</span>
+                            {% if listing.duplicate_count > 1 %}<span>дублей {{ listing.duplicate_count }}</span>{% endif %}
+                            <a href="{{ url_for('workspace.methodology_page') }}" class="methodology-hint" title="Открыть методологию расчета доверия, уверенности и свежести">?</a>
+                        </div>
+                    </div>
+                        <div class="detail-hero-actions">
+                            <a href="{{ url_for('workspace.map_page', focus_listing=listing.id) }}" class="btn-link-map">Показать на карте</a>
+                            <a href="{{ url_for('workspace.district_detail', district_name=listing.district) }}" class="btn-link-map">Район</a>
+                            <a href="{{ url_for('workspace.methodology_page') }}" class="btn-link-map">Как считаются оценки</a>
+                            {% if listing.url %}<a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer" class="btn-link-map">Источник</a>{% endif %}
+                        </div>
+                </div>
+            </section>
+
+            <section class="premium-panel analytics-health-panel analytics-layer">
+                <div class="analytics-health-grid detail-health-grid">
+                    <article><span>Сценарный score</span><strong>{{ "%.1f"|format(listing.scores.object_score) }}</strong><small>{{ listing.explain_summary }}</small></article>
+                    <article><span>Уверенность</span><strong>{{ listing.confidence_score }}/100</strong><small>{{ listing.confidence_note }}</small></article>
+                    <article><span>Что проверить</span><strong>{{ listing.caveat }}</strong><small>{{ listing.marker_note }}</small></article>
+                    <article><span>Район</span><strong>{{ listing.district }}</strong><small>{{ district.profile_label_ru if district else 'Нет районной аналитики' }}</small></article>
+                    <article><span>Свежесть</span><strong>{{ listing.freshness_label }}</strong><small>По полю created_at в источнике</small></article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Диагностика источника</span>
+                        <h3>Почему уровень доверия именно такой</h3>
+                    </div>
+                </div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Источник</span>
+                        <p>{{ listing.source_label }}</p>
+                        <div class="premium-compare-metrics">
+                            <p>Доверие <strong>{{ listing.source_trust_score }}</strong></p>
+                            <p>Дубликаты <strong>{{ listing.duplicate_count }}</strong></p>
+                            <p>Свежесть <strong>{{ listing.freshness_label }}</strong></p>
+                        </div>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Почему доверяем / сомневаемся</span>
+                        <p>{{ listing.source_trust_note }}</p>
+                        <ul class="reason-list clean-list">
+                            <li>источник геокодинга: {{ listing.geocode_source or 'нет' }}</li>
+                            <li>статус геокодинга: {{ listing.geocode_status or 'нет' }}</li>
+                            <li>модель уверенности: {{ listing.confidence_note }}</li>
+                        </ul>
+                    </article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Почему объект в shortlist</span>
+                        <h3>Прозрачность модели</h3>
+                    </div>
+                </div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Подтверждающие сигналы</span>
+                        <ul class="reason-list clean-list">
+                            {% for reason in listing.recommendation_reasons %}
+                            <li>{{ reason }}</li>
+                            {% endfor %}
+                        </ul>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Метрики объекта</span>
+                        <div class="premium-compare-metrics">
+                            <p>Цена / качество <strong>{{ "%.0f"|format(listing.scores.value_score) }}</strong></p>
+                            <p>Транспорт <strong>{{ "%.0f"|format(listing.scores.transport_score) }}</strong></p>
+                            <p>Семья <strong>{{ "%.0f"|format(listing.scores.family_score) }}</strong></p>
+                            <p>Инвестиции <strong>{{ "%.0f"|format(listing.scores.investment_score) }}</strong></p>
+                        </div>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Вклад в score</span>
+                        <div class="premium-compare-metrics">
+                            {% for part in listing.score_explainer %}
+                            <p>{{ part.label }} <strong>{{ part.share }}%</strong></p>
+                            {% endfor %}
+                        </div>
+                        <div class="stacked-explainer-bar" aria-label="Вклад метрик в score">
+                            {% for part in listing.score_explainer %}
+                            <span class="stacked-segment segment-{{ loop.index }}" style="width: {{ part.share }}%" title="{{ part.label }} — {{ part.share }}%"></span>
+                            {% endfor %}
+                        </div>
+                        <p>{{ listing.confidence_note }}</p>
+                    </article>
+                </div>
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head">
+                    <div>
+                        <span class="section-kicker">История цены</span>
+                        <h3>Полноценный трек по снимкам объекта</h3>
+                    </div>
+                </div>
+                {% if price_history_summary.has_history %}
+                <div class="price-history-summary-row">
+                    <span class="price-history-chip">Изменение {{ "{:,.0f}".format(price_history_summary.delta).replace(",", " ") }} ₽</span>
+                    <span class="price-history-chip">{{ price_history_summary.delta_percent }}%</span>
+                    <span class="price-history-chip">Тренд: {{ 'рост' if price_history_summary.trend == 'up' else 'снижение' if price_history_summary.trend == 'down' else 'без изменений' }}</span>
+                </div>
+                <div class="price-history-chart-card">
+                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="График истории цены">
+                        <polyline points="{% for point in price_history_summary.points %}{{ point.x }},{{ point.y }}{% if not loop.last %} {% endif %}{% endfor %}" />
+                        {% for point in price_history_summary.points %}
+                        <circle cx="{{ point.x }}" cy="{{ point.y }}" r="1.8"></circle>
+                        {% endfor %}
+                    </svg>
+                    <div class="price-history-ticks">
+                        {% for point in price_history_summary.points %}
+                        <span>{{ point.label }}{% if not loop.first %} · Δ {{ "{:,.0f}".format(point.delta).replace(",", " ") }} ₽{% endif %}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head">
+                    <div>
+                        <span class="section-kicker">Похожие варианты</span>
+                        <h3>Что еще посмотреть в том же районе</h3>
+                    </div>
+                </div>
+                <div class="shortlist-grid">
+                    {% for item in similar %}
+                    <article class="shortlist-card">
+                        <strong>{{ item.title }}</strong>
+                        <p>{{ item.price_compact }} · {{ item.explain_summary }}</p>
+                        <div class="shortlist-actions">
+                            <a href="{{ url_for('workspace.listing_detail', listing_id=item.id) }}">Открыть</a>
+                            <a href="{{ url_for('workspace.map_page', focus_listing=item.id) }}">На карте</a>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head">
+                    <div>
+                        <span class="section-kicker">Сырые точки истории</span>
+                        <h3>Список снимков цены</h3>
+                    </div>
+                </div>
+                {% if price_history %}
+                <div class="shortlist-grid">
+                    {% for point in price_history %}
+                    <article class="shortlist-card">
+                        <strong>{{ point.created_at }}</strong>
+                        <p>{{ "{:,.0f}".format(point.price).replace(",", " ") }} ₽</p>
+                    </article>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty-state">Повторных снимков цены пока нет. Как только в базе появятся новые версии того же объекта, история появится здесь автоматически.</p>
+                {% endif %}
+            </section>
+            {% else %}
+            <section class="premium-panel analytics-health-panel analytics-layer status-error">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Объект</span>
+                        <h3>Карточка не найдена</h3>
+                        <p class="section-note">Запрошенный объект отсутствует в текущей базе.</p>
+                    </div>
+                </div>
+            </section>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

@@ -4,21 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Карта выбора недвижимости</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='vendor/maplibre-gl.css') }}">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
 <body class="{{ 'map-page-body' if page_kind == 'map' else 'analytics-page-body' }}">
     <div class="page-shell map-first-shell">
-        <nav class="workspace-nav premium-panel {% if page_kind == 'map' %}workspace-nav-floating{% endif %}">
+        {% if page_kind == 'map' %}
+        <nav class="workspace-nav premium-panel workspace-nav-floating">
             <div>
                 <span class="section-kicker">Навигация</span>
                 <h1>{{ page_title }}</h1>
             </div>
                 <div class="workspace-nav-links">
-                    <a href="{{ url_for('map_page') }}" class="nav-link {% if page_kind == 'map' %}active{% endif %}">Карта</a>
-                    <a href="{{ url_for('index') }}" class="nav-link {% if page_kind != 'map' %}active{% endif %}">Подбор</a>
+                    <a href="{{ url_for('workspace.map_page') }}" class="nav-link {% if page_kind == 'map' %}active{% endif %}">Карта</a>
+                    <a href="{{ url_for('workspace.index') }}" class="nav-link {% if page_kind != 'map' %}active{% endif %}">Подбор</a>
+                    <a href="{{ url_for('workspace.data_quality_page') }}" class="nav-link">Качество данных</a>
                 </div>
         </nav>
+        {% endif %}
         <div class="container map-first-container {% if page_kind == 'map' %}map-page-container{% else %}analytics-page-container{% endif %}">
             {% if page_kind == 'map' %}
             <section class="map-workspace premium-panel">
@@ -28,8 +35,55 @@
                     <p class="empty-state map-empty-overlay">{{ map_context.empty_message }}</p>
                     {% endif %}
 
-                    <div class="map-overlay map-controls-overlay">
+                    <button type="button" class="map-sheet-toggle" aria-expanded="false" aria-controls="map-filter-sheet">Панель карты</button>
+
+                    <div class="map-overlay map-controls-overlay" id="map-filter-sheet" data-sheet-state="closed">
+                        <div class="map-sheet-backdrop" data-map-sheet-close></div>
+                        <div class="map-sheet-panel">
+                        <div class="map-sheet-header">
+                            <div>
+                                <span class="section-kicker map-sheet-kicker">Панель карты</span>
+                                <p class="map-sheet-note">Слои, режим просмотра и фильтры собраны в одном control panel.</p>
+                            </div>
+                            <button type="button" class="map-sheet-close" data-map-sheet-close aria-label="Закрыть панель фильтров">Закрыть</button>
+                        </div>
                         <form method="POST" class="floating-filters-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <section class="map-sidebar-section map-sidebar-overview">
+                                <div class="map-panel-head map-sidebar-head">
+                                    <div>
+                                        <span class="section-kicker">Режим карты</span>
+                                        <h3>Карта рыночного выбора</h3>
+                                    </div>
+                                    <span class="compact-map-meta compact-map-meta-strong">{{ total_count }} объектов / {{ map_context.market_summary.district_count }}</span>
+                                </div>
+                                <div class="map-view-switcher" role="tablist" aria-label="Режим отображения карты">
+                                    <button type="button" class="map-view-option active" data-view-mode="hybrid">Смешанный</button>
+                                    <button type="button" class="map-view-option" data-view-mode="districts">Районы</button>
+                                    <button type="button" class="map-view-option" data-view-mode="listings">Объекты</button>
+                                </div>
+                                <div class="map-layer-toggles" aria-label="Слои карты">
+                                    <label class="map-layer-toggle active"><input type="checkbox" data-layer-toggle="districts" checked>Районы</label>
+                                    <label class="map-layer-toggle active"><input type="checkbox" data-layer-toggle="listings" checked>Объекты</label>
+                                    <label class="map-layer-toggle active"><input type="checkbox" data-layer-toggle="signals" checked>Сигналы</label>
+                                </div>
+                                <div class="map-legend-inline">
+                                    <span><i class="legend-swatch district"></i>Районы</span>
+                                    <span><i class="legend-swatch cluster"></i>Кластеры</span>
+                                    <span><i class="legend-swatch listing"></i>Объекты</span>
+                                </div>
+                                <div class="map-sidebar-note-grid">
+                                    <span>Точные координаты: {{ data_quality.exact_geo }}</span>
+                                    <span>Fallback: {{ data_quality.fallback_geo }}</span>
+                                    <span>Обновлено: {{ data_quality.latest_label }}</span>
+                                </div>
+                                <div class="map-preset-row">
+                                    {% for preset in filter_options.presets %}
+                                    <button type="submit" name="preset" value="{{ preset.value }}" class="map-preset-chip {% if current_filters.preset == preset.value %}active{% endif %}">{{ preset.label }}</button>
+                                    {% endfor %}
+                                </div>
+                            </section>
+
                             <div class="floating-control-bar premium-control-strip">
                                 <div class="control-field control-scenario compact-field-block compact-scenario-rail">
                                     <span class="control-label control-label-inline">Сценарий</span>
@@ -45,8 +99,8 @@
                                 <label class="control-field compact-input-group compact-field-block control-budget">
                                     <span class="control-label control-label-inline">Бюджет</span>
                                     <div class="double-field">
-                                        <input type="number" name="price_min" placeholder="От" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[0] }}">
-                                        <input type="number" name="price_max" placeholder="До" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[1] }}">
+                                        <input type="text" inputmode="numeric" name="price_min" placeholder="От" value="{{ '{:,.0f}'.format(current_filters.price_range[0]).replace(',', ' ') }}">
+                                        <input type="text" inputmode="numeric" name="price_max" placeholder="До" value="{{ '{:,.0f}'.format(current_filters.price_range[1]).replace(',', ' ') }}">
                                     </div>
                                 </label>
 
@@ -73,12 +127,12 @@
                                     <div class="control-actions">
                                         <button type="submit" name="action" value="apply_filters" class="btn-apply">Применить</button>
                                         <button type="submit" name="action" value="reset_filters" class="btn-reset">Сброс</button>
-                                        <span class="compact-map-meta">{{ total_count }} · {{ map_context.market_summary.district_count }}</span>
+                                        <span class="compact-map-meta">{{ map_context.selected_district.district if map_context.selected_district else 'Без лидера' }}</span>
                                     </div>
                             </div>
 
                             <details class="advanced-filters overlay-advanced-filters compact-advanced-panel">
-                                <summary>Ещё фильтры и аналитика</summary>
+                                <summary>Тонкая настройка выборки</summary>
                                 <div class="advanced-grid">
                                     <div class="filter-group">
                                         <label>Фокус shortlist</label>
@@ -105,15 +159,6 @@
                                         <input type="number" name="min_object_score" min="0" max="100" value="{{ current_filters.min_object_score }}">
                                     </div>
                                     <div class="filter-group">
-                                        <label>Формат аналитики</label>
-                                        <select name="chart_type">
-                                            <option value="bar" {% if current_filters.chart_type == 'bar' %}selected{% endif %}>Столбцы</option>
-                                            <option value="pie" {% if current_filters.chart_type == 'pie' %}selected{% endif %}>Круг</option>
-                                            <option value="line" {% if current_filters.chart_type == 'line' %}selected{% endif %}>Линия</option>
-                                            <option value="table" {% if current_filters.chart_type == 'table' %}selected{% endif %}>Таблица</option>
-                                        </select>
-                                    </div>
-                                    <div class="filter-group">
                                         <label>Тип сделки</label>
                                         <select name="deal_type">
                                             <option value="">Любой</option>
@@ -129,6 +174,61 @@
                                 </div>
                             </details>
                         </form>
+                        </div>
+                    </div>
+
+                    <aside class="map-overlay map-summary-chip premium-panel" id="map-summary-chip">
+                        <div class="map-summary-chip-shell">
+                            <div class="map-summary-chip-metrics">
+                                <strong id="viewport-listing-count">—</strong>
+                                <span id="viewport-district-count">— районов</span>
+                                <span id="viewport-avg-price">—</span>
+                            </div>
+                            <p class="map-summary-chip-text" id="viewport-summary-text">Сводка появится после первого рендера карты.</p>
+                            <button type="button" class="map-summary-chip-action" id="map-detail-open">Детали</button>
+                        </div>
+                    </aside>
+
+                    <div class="map-overlay map-detail-drawer" id="map-detail-drawer" data-drawer-state="closed">
+                        <div class="map-detail-backdrop" data-detail-close></div>
+                        <aside class="map-detail-panel premium-panel" id="map-detail-panel">
+                            <div class="map-detail-panel-head">
+                                <div>
+                                    <span class="section-kicker">Контекст</span>
+                                    <h3 id="map-detail-title">Выберите слой</h3>
+                                </div>
+                                <div class="map-context-actions">
+                                    <span class="compact-map-meta" id="map-detail-type">Ожидание</span>
+                                    <button type="button" class="map-detail-close" data-detail-close aria-label="Закрыть детали">Закрыть</button>
+                                </div>
+                            </div>
+                            <p class="map-context-note" id="map-detail-note">Кликните по району, кластеру или объекту, чтобы увидеть подробности без hover-popup.</p>
+                            <div class="map-context-actions-row">
+                                <button type="button" class="map-context-focus-btn" id="map-detail-focus">Фокус на выбранном</button>
+                            </div>
+                            <div class="map-context-metrics" id="map-detail-metrics">
+                                <article><span>Сценарий</span><strong>—</strong></article>
+                                <article><span>Цена</span><strong>—</strong></article>
+                                <article><span>Фокус</span><strong>—</strong></article>
+                            </div>
+                            <div class="map-context-section">
+                                <div class="map-context-section-head">
+                                    <span class="section-kicker">Top объекты</span>
+                                    <span class="map-context-mini-note">Кликабельно</span>
+                                </div>
+                                <div class="map-context-list map-context-top-list" id="map-detail-top-list">
+                                    <div class="map-context-list-item">Список появится после выбора района или кластера</div>
+                                </div>
+                            </div>
+                            <div class="map-context-section">
+                                <div class="map-context-section-head">
+                                    <span class="section-kicker">Детали</span>
+                                </div>
+                                <div class="map-context-list" id="map-detail-list">
+                                    <div class="map-context-list-item">Пока ничего не выбрано</div>
+                                </div>
+                            </div>
+                        </aside>
                     </div>
                 </div>
             </section>
@@ -140,9 +240,10 @@
                         <h3>{{ map_context.scenario.workspace_title }}</h3>
                         <p class="section-note">{{ map_context.scenario.description }}</p>
                     </div>
-                    <a href="{{ url_for('map_page') }}" class="btn-link-map">Открыть карту</a>
+                    <a href="{{ url_for('workspace.map_page') }}" class="btn-link-map">Открыть карту</a>
                 </div>
                 <form method="POST" class="analytics-toolbar-form premium-control-strip">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <div class="analytics-scenario-bar">
                         <span class="control-label control-label-inline">Сценарий</span>
                         <div class="scenario-switcher compact-switcher analytics-scenario-switcher">
@@ -157,8 +258,8 @@
                         <label class="control-field compact-input-group compact-field-block control-budget analytics-budget-field">
                             <span class="control-label control-label-inline">Бюджет</span>
                             <div class="double-field">
-                                <input type="number" name="price_min" placeholder="От" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[0] }}">
-                                <input type="number" name="price_max" placeholder="До" min="0" max="{{ filter_options.price_bounds.max }}" value="{{ current_filters.price_range[1] }}">
+                                <input type="text" inputmode="numeric" name="price_min" placeholder="От" value="{{ '{:,.0f}'.format(current_filters.price_range[0]).replace(',', ' ') }}">
+                                <input type="text" inputmode="numeric" name="price_max" placeholder="До" value="{{ '{:,.0f}'.format(current_filters.price_range[1]).replace(',', ' ') }}">
                             </div>
                         </label>
                         <label class="control-field compact-input-group compact-field-block control-district analytics-select-field">
@@ -184,16 +285,206 @@
                             <button type="submit" name="action" value="reset_filters" class="btn-reset">Сброс</button>
                         </div>
                     </div>
+                    <div class="analytics-preset-row">
+                        {% for preset in filter_options.presets %}
+                        <button type="submit" name="preset" value="{{ preset.value }}" class="analytics-preset-chip {% if current_filters.preset == preset.value %}active{% endif %}">{{ preset.label }}</button>
+                        {% endfor %}
+                    </div>
+                </form>
+            </section>
+
+            <section class="premium-panel onboarding-panel analytics-layer">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Onboarding</span>
+                        <h3>Короткий опрос вместо ручной настройки</h3>
+                        <p class="section-note">Ответьте, что важнее: баланс, семья, цена или быстрое метро — и система подстроит пресет под сценарий.</p>
+                    </div>
+                </div>
+                <form method="POST" class="onboarding-form" id="onboarding-form">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="preset" id="onboarding-preset" value="balanced-top">
+                    <div class="onboarding-grid">
+                        <label class="control-field"><span class="control-label control-label-inline">Что важнее</span><select id="onboarding-priority"><option value="balanced-top">Баланс</option><option value="family-ready">Семья</option><option value="value-deals">Цена / качество</option><option value="fast-metro">Быстро до метро</option></select></label>
+                        <label class="control-field"><span class="control-label control-label-inline">Комфортная цена</span><select id="onboarding-budget"><option value="balanced-top">Средняя по рынку</option><option value="value-deals">Хочу value-сделки</option></select></label>
+                        <label class="control-field"><span class="control-label control-label-inline">Сколько важен транспорт</span><select id="onboarding-commute"><option value="balanced-top">Умеренно</option><option value="fast-metro">Максимально</option></select></label>
+                    </div>
+                    <div class="control-actions analytics-actions-bar">
+                        <button type="submit" class="btn-apply">Получить сценарий</button>
+                        <a href="{{ url_for('workspace.methodology_page') }}" class="btn-link-map">Как считаются оценки</a>
+                        <a href="{{ url_for('account.account_page') }}" class="btn-link-map">Аккаунт</a>
+                    </div>
                 </form>
             </section>
             {% endif %}
 
             {% if page_kind != 'map' %}
+            <section class="premium-panel product-status-panel analytics-layer status-{{ status.kind }}">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Статус данных</span>
+                        <h3>{{ status.title }}</h3>
+                        <p class="section-note">{{ status.message }}</p>
+                    </div>
+                </div>
+            </section>
+
             <div class="status-banner market-summary-strip storytelling-strip" role="status">
-                <span><strong>{{ map_context.story_points[0] }}</strong></span>
-                <span><strong>{{ map_context.story_points[1] }}</strong></span>
-                <span><strong>{{ map_context.story_points[2] }}</strong></span>
+                <span class="story-item story-item-primary"><strong>{{ map_context.story_points[0] }}</strong></span>
+                <span class="story-item"><strong>{{ map_context.story_points[1] }}</strong></span>
+                <span class="story-item"><strong>{{ map_context.story_points[2] }}</strong></span>
             </div>
+
+            <section class="premium-panel analytics-health-panel analytics-layer">
+                <div class="section-head compact-head analytics-health-head">
+                    <div>
+                        <span class="section-kicker">Качество данных</span>
+                        <h3>Насколько надежна текущая выборка</h3>
+                        <p class="section-note">Показываем покрытие, тип координат и свежесть набора, чтобы рекомендации выглядели не как черный ящик.</p>
+                    </div>
+                </div>
+                <div class="analytics-health-grid">
+                    <article><span>В выборке</span><strong>{{ data_quality.filtered }}</strong><small>{{ data_quality.coverage_percent }}% от всей базы</small></article>
+                    <article><span>Точные координаты</span><strong>{{ data_quality.exact_geo }}</strong><small>Nominatim / адресный geocoder</small></article>
+                    <article><span>Fallback-координаты</span><strong>{{ data_quality.fallback_geo }}</strong><small>Осторожно для детального позиционирования</small></article>
+                    <article><span>Обновлено</span><strong>{{ data_quality.latest_label }}</strong><small>{{ data_quality.source_count }} источников данных</small></article>
+                </div>
+                <p class="analytics-health-note">{{ data_quality.note }}</p>
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head">
+                    <div>
+                        <span class="section-kicker">Shortlist</span>
+                        <h3>Быстрый набор сильных объектов</h3>
+                        <p class="section-note">Короткая витрина для быстрого перехода на карту или открытия источника.</p>
+                    </div>
+                </div>
+                <div class="shortlist-grid">
+                    {% for listing in shortlist %}
+                    <article class="shortlist-card">
+                        <span class="shortlist-rank">#{{ loop.index }}</span>
+                        <strong>{{ listing.title or listing.address }}</strong>
+                        <p>{{ listing.district }} · {{ listing.price_compact }}</p>
+                        <div class="shortlist-actions">
+                            <a href="{{ url_for('workspace.map_page', focus_listing=listing.id) }}">На карте</a>
+                            {% if listing.url %}<a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Источник</a>{% endif %}
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="premium-panel personal-lists-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head">
+                    <div>
+                        <span class="section-kicker">Личные списки</span>
+                        <h3>Избранное и сохраненный shortlist</h3>
+                        <p class="section-note">Списки сохраняются локально в браузере и переживают перезагрузку страницы.</p>
+                    </div>
+                </div>
+                <div class="shortlist-grid" id="saved-lists-grid">
+                    <article class="shortlist-card"><strong>Избранное</strong><p>Пока пусто</p></article>
+                    <article class="shortlist-card"><strong>Shortlist</strong><p>Пока пусто</p></article>
+                </div>
+                <div class="shortlist-actions top-report-actions">
+                    <button type="button" class="listing-action-btn" id="share-shortlist-btn">Поделиться shortlist</button>
+                    <a href="{{ url_for('account.account_page') }}" class="btn-link-map">Аккаунт</a>
+                </div>
+            </section>
+
+            <section class="premium-panel analytics-health-panel analytics-layer">
+                <div class="section-head compact-head"><div><span class="section-kicker">Качество данных</span><h3>Что происходит с геокодингом и очисткой CSV</h3></div></div>
+                <div class="analytics-health-grid detail-health-grid">
+                    <article><span>Nominatim</span><strong>{{ data_quality_report.nominatim_count }}</strong><small>адресный remote-geocoding</small></article>
+                    <article><span>Fallback</span><strong>{{ data_quality_report.fallback_count }}</strong><small>deterministic-local точки</small></article>
+                    <article><span>Отброшено</span><strong>{{ data_quality_report.dropped_rows }}</strong><small>строк при очистке CSV</small></article>
+                </div>
+                <p class="section-note"><a href="{{ url_for('workspace.data_quality_page') }}">Открыть полную страницу качества данных</a></p>
+            </section>
+
+            <section class="premium-panel analytics-chart-section analytics-layer">
+                <div class="section-head compact-head chart-section-head">
+                    <div>
+                        <span class="section-kicker">Срез выборки</span>
+                        <h3>{{ chart.title }}</h3>
+                        <p class="section-note">Формат графика теперь работает как реальный аналитический блок, а не как скрытая настройка без результата.</p>
+                    </div>
+                    <form method="POST" class="chart-toolbar-form">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="price_min" value="{{ current_filters.price_range[0] }}">
+                        <input type="hidden" name="price_max" value="{{ current_filters.price_range[1] }}">
+                        <input type="hidden" name="district" value="{{ current_filters.district or '' }}">
+                        <input type="hidden" name="rooms" value="{{ current_filters.rooms or '' }}">
+                        <input type="hidden" name="map_mode" value="{{ current_filters.map_mode }}">
+                        <input type="hidden" name="area_min" value="{{ current_filters.area_min }}">
+                        <input type="hidden" name="deal_type" value="{{ current_filters.deal_type or '' }}">
+                        <input type="hidden" name="max_metro_time" value="{{ current_filters.max_metro_time or '' }}">
+                        <input type="hidden" name="min_district_score" value="{{ current_filters.min_district_score }}">
+                        <input type="hidden" name="min_object_score" value="{{ current_filters.min_object_score }}">
+                        <input type="hidden" name="shortlist_focus" value="{{ current_filters.shortlist_focus }}">
+                        {% for district in current_filters.compare_districts %}
+                        <input type="hidden" name="compare_districts" value="{{ district }}">
+                        {% endfor %}
+                        {% if current_filters.family_friendly_only %}<input type="hidden" name="family_friendly_only" value="on">{% endif %}
+                        {% if current_filters.investment_friendly_only %}<input type="hidden" name="investment_friendly_only" value="on">{% endif %}
+                        {% if current_filters.undervalued_only %}<input type="hidden" name="undervalued_only" value="on">{% endif %}
+                        {% if current_filters.transport_priority_only %}<input type="hidden" name="transport_priority_only" value="on">{% endif %}
+                        <label class="chart-type-field">
+                            <span class="control-label control-label-inline">Вид графика</span>
+                            <select name="chart_type">
+                                <option value="bar" {% if current_filters.chart_type == 'bar' %}selected{% endif %}>Столбцы</option>
+                                <option value="pie" {% if current_filters.chart_type == 'pie' %}selected{% endif %}>Круг</option>
+                            </select>
+                        </label>
+                        <button type="submit" name="action" value="apply_filters" class="btn-apply chart-refresh-btn">Обновить</button>
+                    </form>
+                </div>
+
+                {% if chart.type == 'bar' and chart['items'] %}
+                <div class="chart-card chart-bar-card">
+                    {% for item in chart['items'] %}
+                    <div class="chart-bar-row">
+                        <div class="chart-bar-meta">
+                            <strong>{{ item.label }}</strong>
+                            <span>{{ item.count }} объектов</span>
+                        </div>
+                        <div class="chart-bar-track" aria-hidden="true">
+                            <div class="chart-bar-fill" style="width: {{ item.width_percent }}%"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% elif chart.type == 'pie' and chart.legend %}
+                <div class="chart-card chart-pie-layout">
+                    <div class="chart-pie-visual" aria-hidden="true">
+                        <svg viewBox="0 0 200 200" role="presentation">
+                            {% for segment in chart.segments %}
+                                {% if segment.full_circle %}
+                                <circle cx="{{ segment.center_x }}" cy="{{ segment.center_y }}" r="{{ segment.radius }}" fill="{{ segment.color }}"></circle>
+                                {% else %}
+                                <path d="{{ segment.path }}" fill="{{ segment.color }}"></path>
+                                {% endif %}
+                            {% endfor %}
+                            <circle cx="100" cy="100" r="44" fill="white"></circle>
+                        </svg>
+                    </div>
+                    <div class="chart-legend-list">
+                        {% for segment in chart.legend %}
+                        <div class="chart-legend-item">
+                            <span class="chart-legend-dot" style="background: {{ segment.color }}"></span>
+                            <div>
+                                <strong>{{ segment.label }}</strong>
+                                <span>{{ segment.count }} объектов · {{ segment.percentage }}%</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <p class="empty-state">{{ chart.empty_message }}</p>
+                {% endif %}
+            </section>
 
             <section class="compare-section premium-panel analytics-layer">
                 <div class="section-head compact-head compare-layer-head">
@@ -201,9 +492,11 @@
                         <span class="section-kicker">Сравнение районов</span>
                         <h3>Сильный вердикт по двум районам</h3>
                         <p class="section-note">Компактный вердикт один к одному, затем 4 плотных сценарных сигнала без пустых зон.</p>
+                        <p class="section-note"><a href="{{ url_for('workspace.methodology_page') }}">Как считаются оценки</a></p>
                     </div>
                     <div class="filter-group compare-picks compare-toolbar">
                         <form method="POST" class="compare-form-inline">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="price_min" value="{{ current_filters.price_range[0] }}">
                             <input type="hidden" name="price_max" value="{{ current_filters.price_range[1] }}">
                             <input type="hidden" name="district" value="{{ current_filters.district or '' }}">
@@ -233,7 +526,7 @@
                 <div class="compare-grid enhanced-compare-grid">
                     <article class="compare-card compare-district-card premium-compare-side">
                         <div class="compare-card-head">
-                            <h4>{{ compare.comparison.left.district }}</h4>
+                            <h4><a href="{{ url_for('workspace.district_detail', district_name=compare.comparison.left.district) }}">{{ compare.comparison.left.district }}</a></h4>
                             <span class="score-chip">{{ "%.1f"|format(compare.comparison.left.district_score) }}</span>
                         </div>
                         <div class="compare-emphasis">
@@ -261,15 +554,21 @@
                             <span>Разница по бюджету {{ "{:,.0f}".format(compare.comparison.price_gap).replace(",", " ") }} ₽</span>
                         </div>
                         <div class="verdict-spotlight">{{ compare.comparison.tradeoffs[0] }} · {{ compare.comparison.tradeoffs[1] }}</div>
+                        <p class="verdict-support-note">{{ compare.comparison.confidence_note }}</p>
                         <ul class="reason-list clean-list">
                             {% for point in compare.comparison.tradeoffs %}
+                            <li>{{ point }}</li>
+                            {% endfor %}
+                        </ul>
+                        <ul class="reason-list clean-list">
+                            {% for point in compare.comparison.district_explanations %}
                             <li>{{ point }}</li>
                             {% endfor %}
                         </ul>
                     </article>
                     <article class="compare-card compare-district-card premium-compare-side">
                         <div class="compare-card-head">
-                            <h4>{{ compare.comparison.right.district }}</h4>
+                            <h4><a href="{{ url_for('workspace.district_detail', district_name=compare.comparison.right.district) }}">{{ compare.comparison.right.district }}</a></h4>
                             <span class="score-chip">{{ "%.1f"|format(compare.comparison.right.district_score) }}</span>
                         </div>
                         <div class="compare-emphasis">
@@ -301,9 +600,32 @@
                     </article>
                     {% endfor %}
                 </div>
+                <div class="scenario-verdict-grid district-explainer-grid">
+                    {% for metric in compare.comparison.ranking_explainer %}
+                    <article class="compare-card scenario-verdict-card premium-scenario-card">
+                        <span class="section-kicker">{{ metric.label }}</span>
+                        <h4>{{ metric.winner }}</h4>
+                        <p>{{ compare.comparison.left.district }} {{ metric.left_share }}% · {{ compare.comparison.right.district }} {{ metric.right_share }}%</p>
+                    </article>
+                    {% endfor %}
+                </div>
                 {% else %}
                 <p class="empty-state">Выберите два района, чтобы получить сравнение один к одному.</p>
                 {% endif %}
+            </section>
+
+            <section class="compare-section premium-panel analytics-layer object-compare-panel">
+                <div class="section-head compact-head compare-layer-head">
+                    <div>
+                        <span class="section-kicker">Сравнение объектов</span>
+                        <h3>Быстрый one-to-one по двум квартирам</h3>
+                        <p class="section-note">Выберите до двух объектов прямо из карточек. Панель считает разницу по цене, score и ключевым сценариям.</p>
+                    </div>
+                </div>
+                <div id="object-compare-root" class="empty-state">Выберите два объекта кнопкой «Сравнить», чтобы увидеть сравнение.</div>
+                <div class="shortlist-actions top-report-actions">
+                    <button type="button" class="listing-action-btn" id="share-compare-btn">Поделиться сравнением</button>
+                </div>
             </section>
 
             <section class="premium-panel listings-section results-layer">
@@ -314,11 +636,15 @@
                         <p class="section-note">Карточки собраны вокруг цены, рейтинга, визуального блока и короткого объяснения, почему объект попал в подборку.</p>
                     </div>
                 </div>
-                {% if listings %}
+                {% if listing_cards['items'] %}
                 <div class="listings-grid premium-listings-grid">
-                    {% for listing in listings %}
+                    {% for listing in listing_cards['items'] %}
                     <article class="listing-card premium-listing-card">
-                        <div class="listing-media {% if not listing.image_url %}fallback-media{% endif %}" {% if listing.image_url %}style="background-image: linear-gradient(180deg, rgba(18, 37, 63, 0.05), rgba(18, 37, 63, 0.55)), url('{{ listing.image_url }}');"{% endif %}>
+                        <div class="listing-media {% if not listing.image_url %}fallback-media{% endif %}">
+                            {% if listing.image_url %}
+                            <img class="listing-image" src="{{ listing.image_url }}" alt="{{ listing.title or listing.address }}" loading="lazy">
+                            {% endif %}
+                            <div class="listing-media-shade" aria-hidden="true"></div>
                             <div class="listing-media-top">
                                 <span class="listing-badge">{{ listing.district }}</span>
                                 <span class="score-chip">{{ "%.1f"|format(listing.scores.object_score) }}</span>
@@ -348,11 +674,22 @@
                                 <div class="listing-price">{{ "{:,.0f}".format(listing.price).replace(",", " ") }} ₽</div>
                                 <div class="price-callout">{{ "{:,.0f}".format(listing.price_per_m2).replace(",", " ") }} ₽/м²</div>
                             </div>
-                            <div class="price-secondary">score {{ "%.1f"|format(listing.scores.object_score) }} · район {{ listing.district }} · {{ listing.marker_badge }}</div>
+                            <div class="price-secondary">score {{ "%.1f"|format(listing.scores.object_score) }} · район <a href="{{ url_for('workspace.district_detail', district_name=listing.district) }}">{{ listing.district }}</a>{% if listing.marker_badge %} · {{ listing.marker_badge }}{% endif %}</div>
                             <div class="listing-verdict-row">
-                                <span class="verdict-pill">{{ listing.marker_note }}</span>
+                                {% if listing.marker_note %}<span class="verdict-pill">{{ listing.marker_note }}</span>{% endif %}
                                 <span class="listing-rank-chip">#{{ loop.index }}</span>
+                                {% if listing.shortlist_rank %}<span class="listing-rank-chip shortlist-chip">shortlist #{{ listing.shortlist_rank }}</span>{% endif %}
                             </div>
+                            <div class="listing-trust-row">
+                                <span class="listing-trust-pill">Источник: {{ listing.source_label }}</span>
+                                <span class="listing-trust-pill">доверие {{ listing.source_trust_score }}</span>
+                                <span class="listing-trust-pill trust-{{ listing.trust_band }}">{{ listing.source_trust_note }}</span>
+                                <span class="listing-trust-pill trust-{{ listing.geo_precision_tone|default('mid') }}" title="{{ listing.geo_precision_note }}">{{ listing.geo_precision_label }}</span>
+                                <span class="listing-trust-pill freshness-{{ listing.freshness_bucket|default('unknown')|replace('_', '-') }}">{{ listing.freshness_label }}</span>
+                                {% if listing.duplicate_count > 1 %}<span class="listing-trust-pill">дублей {{ listing.duplicate_count }}</span>{% endif %}
+                                <a href="{{ url_for('workspace.methodology_page') }}" class="methodology-hint" title="Почему доверие к источнику и свежесть выглядят именно так">?</a>
+                            </div>
+                            <p class="listing-summary-line">{{ listing.explain_summary }}</p>
                             <div class="listing-stats">
                                 <span>{{ listing.rooms }} комн.</span>
                                 <span>{{ listing.area }} м²</span>
@@ -364,37 +701,70 @@
                                 <span>Транспорт {{ "%.0f"|format(listing.scores.transport_score) }}</span>
                                 <span>Сценарий {{ "%.0f"|format(listing.scores.object_score) }}</span>
                             </div>
+                            <div class="score-explainer-row">
+                                {% for part in listing.score_explainer %}
+                                <span>{{ part.label }} {{ part.share }}%</span>
+                                {% endfor %}
+                            </div>
+                            <div class="stacked-explainer-bar" aria-label="Визуальный вклад метрик в score">
+                                {% for part in listing.score_explainer %}
+                                <span class="stacked-segment segment-{{ loop.index }}" style="width: {{ part.share }}%" title="{{ part.label }} — {{ part.share }}%"></span>
+                                {% endfor %}
+                            </div>
                             <div class="explain-box premium-explain-box">
                                 <strong>Короткие причины</strong>
-                                <div class="why-recommended-badge">{{ listing.marker_badge }} · {{ listing.price_compact }}</div>
+                                {% if listing.marker_badge or listing.price_compact %}<div class="why-recommended-badge">{{ listing.marker_badge }}{% if listing.marker_badge and listing.price_compact %} · {% endif %}{{ listing.price_compact }}</div>{% endif %}
+                                {% if listing.recommendation_reasons %}
                                 <ul class="reason-list clean-list">
                                     {% for reason in listing.recommendation_reasons[:3] %}
                                     <li>{{ reason }}</li>
                                     {% endfor %}
                                 </ul>
+                                {% else %}
+                                <p class="explain-fallback">Подходит по текущему сценарию и базовым фильтрам выборки.</p>
+                                {% endif %}
+                                <p class="listing-caveat"><strong>Что проверить:</strong> {{ listing.caveat }}</p>
                             </div>
                             <div class="listing-footer">
                                 <span>Общий рейтинг {{ "%.1f"|format(listing.scores.object_score) }}</span>
-                                {% if listing.url %}<a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Открыть объявление</a>{% endif %}
+                                <div class="listing-actions">
+                                    <button type="button" class="listing-action-btn" data-favorite-toggle="{{ listing.id }}">В избранное</button>
+                                    <button type="button" class="listing-action-btn" data-shortlist-toggle="{{ listing.id }}">В shortlist</button>
+                                    <button type="button" class="listing-action-btn" data-compare-toggle="{{ listing.id }}">Сравнить</button>
+                                    <a href="{{ url_for('workspace.methodology_page') }}">Как считаются оценки</a>
+                                    {% if listing.id %}<a href="{{ url_for('workspace.listing_detail', listing_id=listing.id) }}">Карточка объекта</a>{% endif %}
+                                    {% if listing.id %}<a href="{{ url_for('workspace.map_page', focus_listing=listing.id) }}">На карте</a>{% endif %}
+                                    {% if listing.url %}<a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Открыть объявление</a>{% endif %}
+                                </div>
                             </div>
                         </div>
                     </article>
                     {% endfor %}
                 </div>
                 {% else %}
-                <p class="empty-state">По текущим фильтрам объявлений не найдено.</p>
+                <p class="empty-state">{{ listing_cards['empty_message'] }}</p>
                 {% endif %}
             </section>
             {% endif %}
         </div>
     </div>
     <script src="{{ url_for('static', filename='vendor/maplibre-gl.js') }}"></script>
-    <script>
+        <script>
         (function () {
             const mapData = {{ map_context|tojson }};
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
             const mapElement = document.getElementById('listings-map');
             if (!mapElement || typeof maplibregl === 'undefined') {
                 return;
+            }
+
+            function escapeHtml(value) {
+                return String(value ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
             }
 
             function debugMap(event, payload) {
@@ -478,6 +848,202 @@
 
             function setMapVisualState(state) {
                 mapElement.dataset.mapState = state;
+            }
+
+            const mapSheet = document.getElementById('map-filter-sheet');
+            const mapSheetToggle = document.querySelector('.map-sheet-toggle');
+            const mapDetailDrawer = document.getElementById('map-detail-drawer');
+            const mapDetailOpen = document.getElementById('map-detail-open');
+            const viewportListingCount = document.getElementById('viewport-listing-count');
+            const viewportDistrictCount = document.getElementById('viewport-district-count');
+            const viewportAvgPrice = document.getElementById('viewport-avg-price');
+            const viewportSummaryText = document.getElementById('viewport-summary-text');
+            const detailTitle = document.getElementById('map-detail-title');
+            const detailType = document.getElementById('map-detail-type');
+            const detailNote = document.getElementById('map-detail-note');
+            const detailFocusButton = document.getElementById('map-detail-focus');
+            const detailMetrics = document.getElementById('map-detail-metrics');
+            const detailTopList = document.getElementById('map-detail-top-list');
+            const detailList = document.getElementById('map-detail-list');
+            const viewModeButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
+            const layerInputs = Array.from(document.querySelectorAll('[data-layer-toggle]'));
+            const uiState = {
+                viewMode: 'hybrid',
+                layers: {
+                    districts: true,
+                    listings: true,
+                    signals: true
+                },
+                focusTarget: null,
+                selectedDistrict: mapData.selected_district ? mapData.selected_district.district : null
+            };
+
+            function setDetailDrawerState(isOpen) {
+                if (!mapDetailDrawer) {
+                    return;
+                }
+                mapDetailDrawer.dataset.drawerState = isOpen ? 'open' : 'closed';
+                document.body.classList.toggle('map-detail-open', Boolean(isOpen));
+            }
+
+            function setMapSheetState(isOpen) {
+                if (!mapSheet || !mapSheetToggle) {
+                    return;
+                }
+                mapSheet.dataset.sheetState = isOpen ? 'open' : 'closed';
+                mapSheetToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                document.body.classList.toggle('map-sheet-open', Boolean(isOpen));
+            }
+
+            if (mapSheet && mapSheetToggle) {
+                mapSheetToggle.addEventListener('click', function () {
+                    setMapSheetState(mapSheet.dataset.sheetState !== 'open');
+                });
+                mapSheet.querySelectorAll('[data-map-sheet-close]').forEach(function (element) {
+                    element.addEventListener('click', function () {
+                        setMapSheetState(false);
+                    });
+                });
+                window.addEventListener('resize', function () {
+                    if (window.innerWidth > 760) {
+                        setMapSheetState(false);
+                    }
+                });
+                document.addEventListener('keydown', function (event) {
+                    if (event.key === 'Escape' && mapSheet.dataset.sheetState === 'open') {
+                        setMapSheetState(false);
+                    }
+                    if (event.key === 'Escape' && mapDetailDrawer && mapDetailDrawer.dataset.drawerState === 'open') {
+                        setDetailDrawerState(false);
+                    }
+                });
+            }
+
+            if (mapDetailDrawer) {
+                mapDetailDrawer.querySelectorAll('[data-detail-close]').forEach(function (element) {
+                    element.addEventListener('click', function () {
+                        setDetailDrawerState(false);
+                    });
+                });
+            }
+
+            if (mapDetailOpen) {
+                mapDetailOpen.addEventListener('click', function () {
+                    setDetailDrawerState(true);
+                });
+            }
+
+            function syncMapUiState() {
+                viewModeButtons.forEach(function (button) {
+                    const active = button.dataset.viewMode === uiState.viewMode;
+                    button.classList.toggle('active', active);
+                    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+                });
+                layerInputs.forEach(function (input) {
+                    const layerName = input.dataset.layerToggle;
+                    const enabled = Boolean(layerName && uiState.layers[layerName]);
+                    input.checked = enabled;
+                    const label = input.closest('.map-layer-toggle');
+                    if (label) {
+                        label.classList.toggle('active', enabled);
+                    }
+                });
+                mapElement.dataset.viewMode = uiState.viewMode;
+            }
+
+            function focusMapTarget(target) {
+                if (!target) {
+                    return;
+                }
+                const drawerOpen = mapDetailDrawer && mapDetailDrawer.dataset.drawerState === 'open';
+                if (target.bounds && Array.isArray(target.bounds) && target.bounds.length === 2) {
+                    map.fitBounds(target.bounds, {
+                        padding: { top: 96, right: drawerOpen ? 370 : 28, bottom: 96, left: window.innerWidth > 760 ? 430 : 20 },
+                        maxZoom: target.maxZoom || 13.6,
+                        duration: 700
+                    });
+                    return;
+                }
+                if (typeof target.lon === 'number' && typeof target.lat === 'number') {
+                    map.easeTo({ center: [target.lon, target.lat], zoom: target.zoom || 14.6, duration: 700 });
+                }
+            }
+
+            function getDistrictBounds(districtName) {
+                const features = mapData.district_geojson && mapData.district_geojson.features ? mapData.district_geojson.features : [];
+                const target = features.find(function (feature) {
+                    return feature && feature.properties && feature.properties.district === districtName;
+                });
+                if (!target || !target.geometry) {
+                    return null;
+                }
+                const bounds = new maplibregl.LngLatBounds();
+                function extendCoordinates(coords) {
+                    if (!Array.isArray(coords)) return;
+                    if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                        bounds.extend(coords);
+                        return;
+                    }
+                    coords.forEach(extendCoordinates);
+                }
+                extendCoordinates(target.geometry.coordinates);
+                return bounds.isEmpty() ? null : bounds.toArray();
+            }
+
+            function buildTopListingButtons(items) {
+                return (items || []).slice(0, 4).map(function (item) {
+                    return '<button type="button" class="map-context-list-button" data-focus-lat="' + item.lat + '" data-focus-lon="' + item.lon + '" data-focus-zoom="15.1">'
+                        + '<strong>' + escapeHtml(item.title) + '</strong>'
+                        + '<span>' + escapeHtml(item.price_compact) + ' · ' + escapeHtml(item.district) + '</span>'
+                        + '</button>';
+                }).join('');
+            }
+
+            function setDetailPanel(payload) {
+                if (!detailTitle || !detailType || !detailNote || !detailMetrics || !detailList || !detailTopList) {
+                    return;
+                }
+                detailTitle.textContent = payload.title || 'Выберите слой';
+                detailType.textContent = payload.type || 'Ожидание';
+                detailNote.textContent = payload.note || 'Кликните по району, кластеру или объекту, чтобы увидеть подробности без hover-popup.';
+                uiState.focusTarget = payload.focusTarget || null;
+                if (Object.prototype.hasOwnProperty.call(payload, 'selectedDistrict')) {
+                    uiState.selectedDistrict = payload.selectedDistrict || null;
+                }
+                if (detailFocusButton) {
+                    detailFocusButton.disabled = !uiState.focusTarget;
+                }
+                detailMetrics.innerHTML = (payload.metrics || []).map(function (metric) {
+                    return '<article><span>' + escapeHtml(metric.label) + '</span><strong>' + escapeHtml(metric.value) + '</strong></article>';
+                }).join('') || '<article><span>Сценарий</span><strong>—</strong></article>';
+                detailTopList.innerHTML = payload.topItemsHtml || '<div class="map-context-list-item">Список появится после выбора района или кластера</div>';
+                detailList.innerHTML = (payload.list || []).map(function (item) {
+                    return '<div class="map-context-list-item">' + escapeHtml(item) + '</div>';
+                }).join('') || '<div class="map-context-list-item">Пока ничего не выбрано</div>';
+                if (payload.openDrawer !== false) {
+                    setDetailDrawerState(true);
+                }
+            }
+
+            syncMapUiState();
+            setDetailPanel({ openDrawer: false });
+
+            if (detailFocusButton) {
+                detailFocusButton.addEventListener('click', function () {
+                    focusMapTarget(uiState.focusTarget);
+                });
+            }
+
+            if (detailTopList) {
+                detailTopList.addEventListener('click', function (event) {
+                    const button = event.target.closest('.map-context-list-button');
+                    if (!button) return;
+                    const lat = Number(button.dataset.focusLat);
+                    const lon = Number(button.dataset.focusLon);
+                    const zoom = Number(button.dataset.focusZoom || 15.1);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+                    focusMapTarget({ lat: lat, lon: lon, zoom: zoom });
+                });
             }
 
             function activateOfflineFallback(reason) {
@@ -586,6 +1152,28 @@
 
             syncScenarioState();
 
+            viewModeButtons.forEach(function (button) {
+                button.addEventListener('click', function () {
+                    uiState.viewMode = button.dataset.viewMode || 'hybrid';
+                    syncMapUiState();
+                    if (mapReady) {
+                        redrawMapLayers();
+                    }
+                });
+            });
+
+            layerInputs.forEach(function (input) {
+                input.addEventListener('change', function () {
+                    const key = input.dataset.layerToggle;
+                    if (!key) return;
+                    uiState.layers[key] = input.checked;
+                    syncMapUiState();
+                    if (mapReady) {
+                        redrawMapLayers();
+                    }
+                });
+            });
+
             function zoneColor(tone) {
                 if (tone === 'prime') return '#3b6cff';
                 if (tone === 'strong') return '#5f88ff';
@@ -637,8 +1225,9 @@
 
             function viewLevel(zoom) {
                 const districtViewZoom = Number(mapData.clustering.district_view_zoom || 11);
-                const clusterMaxZoom = Number(mapData.clustering.cluster_max_zoom || 13);
                 const detailZoom = Number(mapData.clustering.detail_zoom || 15);
+                if (uiState.viewMode === 'districts') return 'district';
+                if (uiState.viewMode === 'listings') return zoom >= detailZoom - 0.8 ? 'listing' : 'cluster';
                 if (zoom <= districtViewZoom) return 'district';
                 if (zoom < detailZoom) return 'cluster';
                 return 'listing';
@@ -653,6 +1242,89 @@
             function inViewport(item) {
                 const viewport = map.getBounds();
                 return viewport && viewport.contains([item.lon, item.lat]);
+            }
+
+            function updateViewportSummary() {
+                if (!viewportListingCount || !viewportDistrictCount || !viewportAvgPrice || !viewportSummaryText) {
+                    return;
+                }
+                const visibleListings = (mapData.listings || []).filter(inViewport);
+                const dataset = visibleListings.length ? visibleListings : (mapData.listings || []);
+                const visibleDistricts = new Set(dataset.map(function (item) { return item.district; }).filter(Boolean));
+                const avgPrice = dataset.length ? dataset.reduce(function (sum, item) { return sum + Number(item.price || 0); }, 0) / dataset.length : 0;
+                const topListing = dataset.slice().sort(function (a, b) { return Number(b.scenario_score || 0) - Number(a.scenario_score || 0); })[0];
+                viewportListingCount.textContent = String(dataset.length || 0);
+                viewportDistrictCount.textContent = String(visibleDistricts.size || 0) + ' районов';
+                viewportAvgPrice.textContent = dataset.length ? formatShortMoney(avgPrice) : '—';
+                viewportSummaryText.textContent = topListing
+                    ? topListing.district + ' / ' + topListing.title
+                    : 'В текущем viewport нет объектов.';
+            }
+
+            function districtDetailPayload(district) {
+                const districtListings = (mapData.listings || [])
+                    .filter(function (item) { return item.district === district.district; })
+                    .sort(function (a, b) { return Number(b.scenario_score || 0) - Number(a.scenario_score || 0); });
+                const focusBounds = getDistrictBounds(district.district);
+                return {
+                    title: district.district,
+                    type: 'Район',
+                    note: district.story,
+                    metrics: [
+                        { label: 'Сценарий', value: Number(district.scenario_score).toFixed(1) },
+                        { label: 'Средняя цена', value: district.avg_price_label },
+                        { label: 'Доля рынка', value: Number(district.market_share || 0).toFixed(0) + '%' }
+                    ],
+                    topItemsHtml: buildTopListingButtons(districtListings),
+                    list: (district.highlights || []).slice(0, 4),
+                    selectedDistrict: district.district,
+                    focusTarget: focusBounds
+                        ? { bounds: focusBounds, maxZoom: 12.9 }
+                        : { lat: district.lat, lon: district.lon, zoom: 12.8 }
+                };
+            }
+
+            function listingDetailPayload(listing) {
+                return {
+                    title: listing.title,
+                    type: 'Объект',
+                    note: listing.address + ' · ' + (listing.freshness_label || 'без даты'),
+                    metrics: [
+                        { label: 'Цена', value: formatMoney(listing.price) },
+                        { label: 'Сценарий', value: Number(listing.scenario_score).toFixed(1) },
+                        { label: 'Доверие', value: String(listing.source_trust_score || '—') },
+                        { label: 'Свежесть', value: listing.freshness_label || 'без даты' }
+                    ],
+                    topItemsHtml: buildTopListingButtons([listing]),
+                    list: [
+                        'Источник: ' + (listing.source_label || 'sample_data') + ' · доверие ' + (listing.source_trust_score || 60),
+                        'Дубликаты: ' + String(listing.duplicate_count || 1),
+                        'Свежесть: ' + (listing.freshness_label || 'без даты')
+                    ].concat((listing.score_explainer || []).slice(0, 3).map(function (part) {
+                        return part.label + ': ' + part.share + '% вклада в score';
+                    })).concat((listing.recommendation_reasons || []).slice(0, 2)),
+                    selectedDistrict: listing.district,
+                    focusTarget: { lat: listing.lat, lon: listing.lon, zoom: 15.2 }
+                };
+            }
+
+            function clusterDetailPayload(cluster, priceRange, metroFast) {
+                return {
+                    title: cluster.topItem ? cluster.topItem.district : 'Кластер',
+                    type: 'Кластер',
+                    note: 'Срез объектов внутри текущего viewport и масштаба карты.',
+                    metrics: [
+                        { label: 'Объектов', value: String(cluster.items.length) },
+                        { label: 'Диапазон', value: priceRange },
+                        { label: 'Метро <=12', value: String(metroFast) }
+                    ],
+                    topItemsHtml: buildTopListingButtons(
+                        cluster.items.slice().sort(function (a, b) { return Number(b.scenario_score || 0) - Number(a.scenario_score || 0); })
+                    ),
+                    list: cluster.items.slice(0, 4).map(function (item) { return item.title + ' · ' + item.price_compact; }),
+                    selectedDistrict: cluster.topItem ? cluster.topItem.district : null,
+                    focusTarget: { lat: cluster.lat, lon: cluster.lon, zoom: 14.2 }
+                };
             }
 
             function clusterListings(items, zoom) {
@@ -685,30 +1357,30 @@
             function districtPopup(district) {
                 return `
                     <div class="map-popup district-popup">
-                        <strong>#${district.rank} · ${district.district}</strong>
-                        <p>${district.story}</p>
+                        <strong>#${escapeHtml(district.rank)} · ${escapeHtml(district.district)}</strong>
+                        <p>${escapeHtml(district.story)}</p>
                         <div class="popup-metrics">
-                            <span>Сценарий ${Number(district.scenario_score).toFixed(1)}</span>
-                            <span>Транспорт ${Number(district.transport_score).toFixed(0)}</span>
-                            <span>Семья ${Number(district.family_score).toFixed(0)}</span>
-                            <span>Инвестиции ${Number(district.investment_score).toFixed(0)}</span>
-                            <span>Доля ${Number(district.market_share || 0).toFixed(0)}%</span>
+                            <span>Сценарий ${escapeHtml(Number(district.scenario_score).toFixed(1))}</span>
+                            <span>Транспорт ${escapeHtml(Number(district.transport_score).toFixed(0))}</span>
+                            <span>Семья ${escapeHtml(Number(district.family_score).toFixed(0))}</span>
+                            <span>Инвестиции ${escapeHtml(Number(district.investment_score).toFixed(0))}</span>
+                            <span>Доля ${escapeHtml(Number(district.market_share || 0).toFixed(0))}%</span>
                         </div>
                     </div>`;
             }
 
             function listingPopup(listing) {
-                const reasons = (listing.recommendation_reasons || []).slice(0, 3).map((reason) => `<li>${reason}</li>`).join('');
+                const reasons = (listing.recommendation_reasons || []).slice(0, 3).map((reason) => `<li>${escapeHtml(reason)}</li>`).join('');
                 return `
                     <div class="map-popup listing-popup">
-                        <strong>${listing.title}</strong>
-                        <p>${listing.address}</p>
-                        <div class="popup-price">${formatMoney(listing.price)} · ${listing.rooms} комн. · ${listing.area} м²</div>
-                        <div class="popup-meta">${listing.district}${listing.metro_station ? ' · ' + listing.metro_station : ''}${listing.metro_time_min !== null ? ' · ' + listing.metro_time_min + ' мин' : ''}</div>
+                        <strong>${escapeHtml(listing.title)}</strong>
+                        <p>${escapeHtml(listing.address)}</p>
+                        <div class="popup-price">${escapeHtml(formatMoney(listing.price))} · ${escapeHtml(listing.rooms)} комн. · ${escapeHtml(listing.area)} м²</div>
+                        <div class="popup-meta">${escapeHtml(listing.district)}${listing.metro_station ? ' · ' + escapeHtml(listing.metro_station) : ''}${listing.metro_time_min !== null ? ' · ' + escapeHtml(listing.metro_time_min) + ' мин' : ''}</div>
                         <div class="popup-metrics">
-                            <span>${mapData.scenario.label}: ${Number(listing.scenario_score).toFixed(1)}</span>
-                            <span>Рейтинг объекта ${Number(listing.scores.object_score).toFixed(1)}</span>
-                            <span>${listing.marker_note}</span>
+                            <span>${escapeHtml(mapData.scenario.label)}: ${escapeHtml(Number(listing.scenario_score).toFixed(1))}</span>
+                            <span>Рейтинг объекта ${escapeHtml(Number(listing.scores.object_score).toFixed(1))}</span>
+                            <span>${escapeHtml(listing.marker_note)}</span>
                         </div>
                         <ul class="popup-reasons">${reasons}</ul>
                     </div>`;
@@ -733,7 +1405,29 @@
                 if (!feature || feature.id === undefined || feature.id === null) {
                     return;
                 }
-                map.setFeatureState({ source: 'district-polygons', id: feature.id }, { hover: active });
+                map.setFeatureState({ source: mapData.district_geojson_source === 'file' ? 'district-polygons' : 'district-centroids', id: feature.id }, { hover: active });
+            }
+
+            function buildDistrictCentroidFeatures() {
+                return (mapData.districts || []).map(function (district, index) {
+                    const feature = createPoint(district.lon, district.lat, {
+                        district: district.district,
+                        rank: district.rank,
+                        story: district.story,
+                        avg_price_label: district.avg_price_label,
+                        scenario_score: district.scenario_score,
+                        transport_score: district.transport_score,
+                        family_score: district.family_score,
+                        investment_score: district.investment_score,
+                        market_share: district.market_share,
+                        lineColor: heatColor(district.heat_level),
+                        haloColor: zoneColor(district.zone_tone),
+                        haloRadius: district.rank === 1 ? 34 : district.rank <= 3 ? 26 : 18,
+                        haloOpacity: district.rank === 1 ? 0.2 : district.rank <= 3 ? 0.14 : 0.09
+                    });
+                    feature.id = index;
+                    return feature;
+                });
             }
 
             function buildDistrictPolygonFeatures() {
@@ -752,27 +1446,10 @@
                             heat_level: props.heat_level,
                             fillColor: zoneColor(props.zone_tone),
                             lineColor: heatColor(props.heat_level),
-                            fillOpacity: props.rank <= 1 ? 0.18 : props.rank <= 3 ? 0.11 : 0.06,
-                            lineOpacity: props.rank <= 3 ? 0.62 : 0.34
+                            fillOpacity: props.rank <= 1 ? 0.16 : props.rank <= 3 ? 0.1 : 0.06,
+                            lineOpacity: props.rank <= 3 ? 0.55 : 0.28
                         }
                     };
-                });
-            }
-
-            function buildDistrictCentroidFeatures() {
-                return (mapData.districts || []).map(function (district) {
-                    return createPoint(district.lon, district.lat, {
-                        district: district.district,
-                        rank: district.rank,
-                        story: district.story,
-                        avg_price_label: district.avg_price_label,
-                        scenario_score: district.scenario_score,
-                        transport_score: district.transport_score,
-                        family_score: district.family_score,
-                        investment_score: district.investment_score,
-                        market_share: district.market_share,
-                        lineColor: heatColor(district.heat_level)
-                    });
                 });
             }
 
@@ -780,63 +1457,103 @@
                 ensureSource('district-polygons', { type: 'FeatureCollection', features: [] });
                 ensureSource('district-centroids', { type: 'FeatureCollection', features: [] });
 
+                if (mapData.district_geojson_source === 'file') {
+                    ensureLayer({
+                        id: 'district-polygon-fill',
+                        type: 'fill',
+                        source: 'district-polygons',
+                        maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                        paint: {
+                            'fill-color': ['get', 'fillColor'],
+                            'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.22, ['get', 'fillOpacity']],
+                            'fill-outline-color': ['get', 'lineColor']
+                        }
+                    });
+                    ensureLayer({
+                        id: 'district-polygon-outline',
+                        type: 'line',
+                        source: 'district-polygons',
+                        maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                        paint: {
+                            'line-color': ['get', 'lineColor'],
+                            'line-opacity': ['get', 'lineOpacity'],
+                            'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 12, 1.4, 14, 1]
+                        }
+                    });
+                    ensureLayer({
+                        id: 'district-polygon-selected-outline',
+                        type: 'line',
+                        source: 'district-polygons',
+                        filter: ['==', ['get', 'district'], ''],
+                        maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                        paint: {
+                            'line-color': '#1f4cc7',
+                            'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.2, 12, 3.2, 14, 2.6],
+                            'line-opacity': 0.95
+                        }
+                    });
+                }
+
                 ensureLayer({
-                    id: 'district-tint-glow',
-                    type: 'line',
-                    source: 'district-polygons',
+                    id: 'district-zone-halo',
+                    type: 'circle',
+                    source: 'district-centroids',
                     maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
                     paint: {
-                        'line-color': ['get', 'fillColor'],
-                        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 7, 12, 10, 14, 6],
-                        'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.14, 12.5, 0.08, 14.4, 0],
-                        'line-blur': 1.4
+                        'circle-color': ['get', 'haloColor'],
+                        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, ['get', 'haloRadius'], 11, ['*', ['get', 'haloRadius'], 1.35], 13.8, ['*', ['get', 'haloRadius'], 1.75]],
+                        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8, ['get', 'haloOpacity'], 12.8, 0.06, 14.4, 0],
+                        'circle-blur': 0.55,
+                        'circle-stroke-width': 0
                     }
                 });
 
                 ensureLayer({
-                    id: 'district-tint-fill',
-                    type: 'fill',
-                    source: 'district-polygons',
+                    id: 'district-zone-core',
+                    type: 'circle',
+                    source: 'district-centroids',
                     maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
                     paint: {
-                        'fill-color': ['get', 'fillColor'],
-                        'fill-outline-color': ['get', 'lineColor'],
-                        'fill-opacity': [
-                            'case',
-                            ['boolean', ['feature-state', 'hover'], false],
-                            0.26,
-                            ['interpolate', ['linear'], ['zoom'], 8, ['get', 'fillOpacity'], Number(mapData.clustering.polygon_fade_zoom || 12.8), 0.08, Number(mapData.clustering.detail_zoom || 14.6), 0.02]
-                        ]
+                        'circle-color': ['get', 'haloColor'],
+                        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 6, 12, 8.5, 14, 6.5],
+                        'circle-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.98, 0.84],
+                        'circle-stroke-color': ['get', 'lineColor'],
+                        'circle-stroke-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2.4, 1.2],
+                        'circle-stroke-opacity': 0.9
                     }
                 });
 
                 ensureLayer({
-                    id: 'district-outline-line',
-                    type: 'line',
-                    source: 'district-polygons',
-                    maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
-                    paint: {
-                        'line-color': ['get', 'lineColor'],
-                        'line-opacity': ['get', 'lineOpacity'],
-                        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.1, 12, 1.5, 14, 1.0]
-                    }
-                });
-
-                ensureLayer({
-                    id: 'district-centroid-line',
+                    id: 'district-centroid-pulse',
                     type: 'circle',
                     source: 'district-centroids',
                     maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
                     paint: {
                         'circle-color': ['get', 'lineColor'],
-                        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2.4, 12, 3.8, 14, 2.2],
-                        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.42, 13, 0.22, 14.5, 0]
+                        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 12, 3.2, 14, 2],
+                        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.34, 13, 0.18, 14.5, 0]
+                    }
+                });
+
+                ensureLayer({
+                    id: 'district-centroid-selected',
+                    type: 'circle',
+                    source: 'district-centroids',
+                    filter: ['==', ['get', 'district'], ''],
+                    maxzoom: Number(mapData.clustering.detail_zoom || 15) - 0.1,
+                    paint: {
+                        'circle-color': 'rgba(31, 76, 199, 0.08)',
+                        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 18, 12, 24, 14, 18],
+                        'circle-stroke-color': '#1f4cc7',
+                        'circle-stroke-width': 2.2,
+                        'circle-stroke-opacity': 0.92
                     }
                 });
 
                 if (!map.__districtHoverBound) {
                     let hoveredDistrictFeature = null;
-                    map.on('mousemove', 'district-tint-fill', function (event) {
+                    const districtHoverLayer = mapData.district_geojson_source === 'file' ? 'district-polygon-fill' : 'district-zone-core';
+                    map.on('mousemove', districtHoverLayer, function (event) {
                         const feature = event.features && event.features[0];
                         if (!feature) return;
                         if (hoveredDistrictFeature && hoveredDistrictFeature.id !== feature.id) {
@@ -850,7 +1567,15 @@
                         map.getCanvas().style.cursor = 'pointer';
                     });
 
-                    map.on('mouseleave', 'district-tint-fill', function () {
+                    map.on('click', districtHoverLayer, function (event) {
+                        const feature = event.features && event.features[0];
+                        if (!feature) return;
+                        const district = (mapData.districts || []).find(function (item) { return item.district === feature.properties.district; });
+                        if (!district) return;
+                        setDetailPanel(districtDetailPayload(district));
+                    });
+
+                    map.on('mouseleave', districtHoverLayer, function () {
                         if (hoveredDistrictFeature) {
                             setDistrictHoverState(hoveredDistrictFeature, false);
                             hoveredDistrictFeature = null;
@@ -864,27 +1589,51 @@
             }
 
             function renderSignalCues() {
-                if (map.getZoom() > Number(mapData.clustering.cluster_max_zoom || 13)) {
+                if (!uiState.layers.signals) {
                     return;
                 }
-                (mapData.districts || []).slice(0, 2).forEach(function (district) {
+                if (viewLevel(map.getZoom()) !== 'district') {
+                    return;
+                }
+                (mapData.districts || []).slice(0, 1).forEach(function (district) {
                     const color = district.is_best_value_area ? '#16a34a' : zoneColor(district.zone_tone);
-                    const label = district.is_best_value_area ? 'Лучшая value-зона' : district.is_top_district ? 'Лучший район' : 'Приоритет';
+                    const label = district.is_best_value_area ? 'Value' : district.is_top_district ? 'Лидер' : 'Фокус';
                     addHtmlMarker(district.lon, district.lat, `<div class="map-signal-pill tone-${district.zone_tone}" style="--signal-color:${color}">${label}</div>`, 'maplibre-html-marker signal-cue-marker');
                 });
-                if (mapData.best_value_listing && map.getZoom() >= Number(mapData.clustering.cluster_max_zoom || 13) - 0.4) {
-                    addHtmlMarker(mapData.best_value_listing.lon, mapData.best_value_listing.lat, '<div class="map-pin-note">Активный режим</div>', 'maplibre-html-marker map-pin-note-marker');
-                }
             }
 
             function renderDistricts() {
+                ensureSource('district-centroids', { type: 'FeatureCollection', features: [] });
+                const districtLayers = ['district-zone-halo', 'district-zone-core', 'district-centroid-pulse'];
                 const level = viewLevel(map.getZoom());
-                ensureSource('district-polygons', { type: 'FeatureCollection', features: level === 'listing' ? [] : buildDistrictPolygonFeatures() });
-                ensureSource('district-centroids', { type: 'FeatureCollection', features: level === 'listing' ? [] : buildDistrictCentroidFeatures() });
-                if (level === 'listing') return;
+                const shouldShowDistricts = uiState.layers.districts && level !== 'listing';
+                const polygonVisible = shouldShowDistricts && mapData.district_geojson_source === 'file';
+                ensureSource('district-polygons', { type: 'FeatureCollection', features: polygonVisible ? buildDistrictPolygonFeatures() : [] });
+                ensureSource('district-centroids', { type: 'FeatureCollection', features: shouldShowDistricts ? buildDistrictCentroidFeatures() : [] });
+                if (map.getLayer('district-polygon-selected-outline')) {
+                    map.setFilter('district-polygon-selected-outline', ['==', ['get', 'district'], uiState.selectedDistrict || '']);
+                    map.setLayoutProperty('district-polygon-selected-outline', 'visibility', polygonVisible && uiState.selectedDistrict ? 'visible' : 'none');
+                }
+                if (map.getLayer('district-centroid-selected')) {
+                    map.setFilter('district-centroid-selected', ['==', ['get', 'district'], uiState.selectedDistrict || '']);
+                    map.setLayoutProperty('district-centroid-selected', 'visibility', shouldShowDistricts && !polygonVisible && uiState.selectedDistrict ? 'visible' : 'none');
+                }
+                ['district-polygon-fill', 'district-polygon-outline'].forEach(function (layerId) {
+                    if (map.getLayer(layerId)) {
+                        map.setLayoutProperty(layerId, 'visibility', polygonVisible ? 'visible' : 'none');
+                    }
+                });
+                districtLayers.forEach(function (layerId) {
+                    if (map.getLayer(layerId)) {
+                        map.setLayoutProperty(layerId, 'visibility', shouldShowDistricts && !polygonVisible ? 'visible' : 'none');
+                    }
+                });
+                if (!shouldShowDistricts) return;
                 (mapData.districts || []).forEach(function (district) {
                     if (district.rank <= 3 && level === 'district') {
-                        addHtmlMarker(district.lon, district.lat, `<div class="district-rank-badge tone-${district.zone_tone}">#${district.rank}</div>`, 'maplibre-html-marker district-rank-marker', districtPopup(district));
+                        addHtmlMarker(district.lon, district.lat, `<div class="district-rank-badge tone-${district.zone_tone}"><span>#${district.rank}</span><small>${district.district}</small></div>`, 'maplibre-html-marker district-rank-marker', districtPopup(district), function () {
+                            setDetailPanel(districtDetailPayload(district));
+                        });
                     }
                 });
             }
@@ -893,31 +1642,31 @@
                 const zoom = map.getZoom();
                 const detailZoom = Number(mapData.clustering.detail_zoom || 15);
                 const level = viewLevel(zoom);
+                if (!uiState.layers.listings) return;
                 if (level === 'district') return;
                 const clusters = clusterListings(mapData.listings || [], zoom);
                 clusters.forEach((cluster) => {
                     if (cluster.type === 'cluster') {
-                        const bestValue = cluster.items.some((item) => item.is_best_value);
-                        const topPick = cluster.items.some((item) => item.is_top_pick);
                         const averageScore = cluster.items.reduce((sum, item) => sum + Number(item.scenario_score || 0), 0) / cluster.items.length;
                         const prices = cluster.items.map((item) => Number(item.price || 0)).filter(Boolean).sort((a, b) => a - b);
                         const priceRange = prices.length ? `${formatShortMoney(prices[0])}–${formatShortMoney(prices[prices.length - 1])}` : '—';
                         const metroFast = cluster.items.filter((item) => Number(item.metro_time_min || 99) <= 12).length;
                         const html = `
-                            <div class="cluster-marker tone-${toneClass(cluster.score)} ${bestValue ? 'has-value' : ''} ${topPick ? 'has-top-pick' : ''}">
+                            <div class="cluster-marker tone-${toneClass(cluster.score)}">
                                 <span class="cluster-count">${cluster.items.length}</span>
                                 <div class="cluster-marker-meta">
-                                    <strong>${topPick ? 'Top picks' : bestValue ? 'Value focus' : 'Cluster'}</strong>
+                                    <strong>Кластер</strong>
                                     <small>${priceRange}</small>
-                                    <b>${averageScore.toFixed(0)} score</b>
+                                    <b>${averageScore.toFixed(0)}</b>
                                 </div>
                             </div>`;
                         addHtmlMarker(cluster.lon, cluster.lat, html, 'maplibre-html-marker cluster-marker-anchor', `
                             <div class="map-popup cluster-popup">
                                 <strong>${cluster.items.length} объектов в зоне</strong>
                                 <p>Средняя цена ${formatMoney(cluster.avgPrice)} · диапазон ${priceRange}. Лучший сигнал: ${cluster.topItem ? cluster.topItem.title : '—'}.</p>
-                                <div class="popup-metrics"><span>Сценарий ${Number(cluster.score).toFixed(1)}</span><span>Быстрое метро: ${metroFast}</span><span>${topPick ? 'Есть top picks' : bestValue ? 'Есть value-сигнал' : 'Есть shortlist'}</span></div>
+                                <div class="popup-metrics"><span>Сценарий ${Number(cluster.score).toFixed(1)}</span><span>Быстрое метро: ${metroFast}</span><span>Средний срез</span></div>
                             </div>`, function () {
+                            setDetailPanel(clusterDetailPayload(cluster, priceRange, metroFast));
                             map.easeTo({ center: [cluster.lon, cluster.lat], zoom: Math.min(zoom + 2, detailZoom), duration: 700 });
                         });
                         return;
@@ -926,9 +1675,12 @@
                     const compact = zoom < detailZoom;
                     const showPrice = zoom >= Number(mapData.clustering.price_marker_zoom || 14);
                     const html = compact || !showPrice
-                        ? `<div class="listing-marker-pin tone-${listing.marker_tone} ${listing.is_top_pick ? 'top-pick' : ''} ${listing.is_best_value ? 'best-value' : ''}"><span class="pin-core"></span></div>`
-                        : `<div class="map-price-pill tone-${listing.marker_tone} ${listing.is_top_pick ? 'top-pick' : ''} ${listing.is_best_value ? 'best-value' : ''}"><span class="pill-icon"></span><span class="pill-price">${listing.price_compact}</span><span class="pill-badge">${listing.marker_badge}</span></div>`;
-                    addHtmlMarker(listing.lon, listing.lat, html, 'maplibre-html-marker listing-marker-anchor', listingPopup(listing));
+                        ? `<div class="listing-marker-pin tone-${listing.marker_tone}"><span class="pin-core"></span></div>`
+                        : `<div class="map-price-pill tone-${listing.marker_tone}"><span class="pill-price">${listing.price_compact}</span><span class="pill-mini-badge">T${listing.source_trust_score || 60}</span></div>`;
+                    const popupHtml = listingPopup(listing) + `<div class="map-popup map-popup-meta-strip"><div class="popup-metrics"><span>доверие ${listing.source_trust_score || 60}</span><span>${listing.freshness_label || 'без даты'}</span>${listing.duplicate_count > 1 ? `<span>дублей ${listing.duplicate_count}</span>` : ''}</div></div>`;
+                    addHtmlMarker(listing.lon, listing.lat, html, 'maplibre-html-marker listing-marker-anchor', popupHtml, function () {
+                        setDetailPanel(listingDetailPayload(listing));
+                    });
                 });
             }
 
@@ -937,11 +1689,14 @@
                 renderDistricts();
                 renderListings();
                 renderSignalCues();
+                updateViewportSummary();
             }
 
             function getViewportPadding() {
-                const compact = window.innerWidth <= 1360;
-                return compact ? { topLeft: [18, 86], bottomRight: [18, 80] } : { topLeft: [24, 94], bottomRight: [24, 88] };
+                if (window.innerWidth <= 760) {
+                    return { topLeft: [18, 84], bottomRight: [18, 180] };
+                }
+                return { topLeft: [436, 96], bottomRight: [24, 88] };
             }
 
             function applyInitialViewport() {
@@ -973,6 +1728,14 @@
                         styleInitialized = true;
                     }
                     redrawMapLayers();
+                    if (mapData.selected_listing) {
+                        setDetailPanel(listingDetailPayload(mapData.selected_listing));
+                        focusMapTarget({ lat: mapData.selected_listing.lat, lon: mapData.selected_listing.lon, zoom: 15.1 });
+                    } else if (mapData.selected_district) {
+                        const initialPayload = districtDetailPayload(mapData.selected_district);
+                        initialPayload.openDrawer = false;
+                        setDetailPanel(initialPayload);
+                    }
                     mapReady = true;
                     setMapVisualState(usingOfflineFallback ? 'fallback' : 'ready');
                 } catch (error) {
@@ -1026,6 +1789,265 @@
                 if (mapReady) {
                     redrawMapLayers();
                 }
+            });
+        })();
+
+        (function () {
+            const listingData = {{ listing_cards['items']|tojson if page_kind != 'map' else '[]' }};
+            if (!listingData.length) {
+                return;
+            }
+
+            function escapeHtml(value) {
+                return String(value ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            const compareRoot = document.getElementById('object-compare-root');
+            const savedListsGrid = document.getElementById('saved-lists-grid');
+            const shareShortlistBtn = document.getElementById('share-shortlist-btn');
+            const shareCompareBtn = document.getElementById('share-compare-btn');
+            const onboardingForm = document.getElementById('onboarding-form');
+            const onboardingPreset = document.getElementById('onboarding-preset');
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+            const storageKeys = {
+                compare: 'mephi_compare_listings'
+            };
+
+            function readIds(key) {
+                try {
+                    return JSON.parse(window.localStorage.getItem(key) || '[]');
+                } catch (error) {
+                    return [];
+                }
+            }
+
+            function writeIds(key, ids) {
+                window.localStorage.setItem(key, JSON.stringify(ids));
+            }
+
+            function getByIds(ids) {
+                return ids.map(function (id) {
+                    return listingData.find(function (item) { return Number(item.id) === Number(id); });
+                }).filter(Boolean);
+            }
+
+            function toggleStoredId(key, id, limit) {
+                const ids = readIds(key);
+                const idx = ids.findIndex(function (value) { return Number(value) === Number(id); });
+                if (idx >= 0) {
+                    ids.splice(idx, 1);
+                } else {
+                    if (limit && ids.length >= limit) {
+                        ids.shift();
+                    }
+                    ids.push(Number(id));
+                }
+                writeIds(key, ids);
+                return ids;
+            }
+
+            async function fetchSavedLists() {
+                const response = await fetch('/api/saved-lists', { credentials: 'same-origin' });
+                if (!response.ok) {
+                    return { favorite: [], shortlist: [] };
+                }
+                return response.json();
+            }
+
+            async function toggleServerList(listType, id) {
+                const response = await fetch('/api/saved-lists', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body: JSON.stringify({ list_type: listType, listing_id: Number(id) })
+                });
+                if (!response.ok) {
+                    return null;
+                }
+                return response.json();
+            }
+
+            async function createShare(reportType) {
+                const response = await fetch('/api/share-report', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body: JSON.stringify({ report_type: reportType })
+                });
+                if (!response.ok) {
+                    return null;
+                }
+                return response.json();
+            }
+
+            function renderSavedLists() {
+                if (!savedListsGrid) return;
+                const favorites = getByIds(window.__serverSavedFavorites || []);
+                const shortlist = getByIds(window.__serverSavedShortlist || []);
+                savedListsGrid.innerHTML = [
+                    {
+                        title: 'Избранное',
+                        items: favorites
+                    },
+                    {
+                        title: 'Shortlist',
+                        items: shortlist
+                    }
+                ].map(function (group) {
+                    const content = group.items.length
+                        ? group.items.slice(0, 3).map(function (item) { return '<p>' + escapeHtml(item.title) + ' · ' + escapeHtml(item.price_compact) + '</p>'; }).join('')
+                        : '<p>Пока пусто</p>';
+                    return '<article class="shortlist-card"><strong>' + escapeHtml(group.title) + '</strong>' + content + '</article>';
+                }).join('');
+            }
+
+            function renderCompare() {
+                if (!compareRoot) return;
+                const compareItems = getByIds(readIds(storageKeys.compare));
+                if (compareItems.length < 2) {
+                    compareRoot.className = 'empty-state';
+                    compareRoot.textContent = 'Выберите два объекта кнопкой «Сравнить», чтобы увидеть сравнение.';
+                    return;
+                }
+                const left = compareItems[0];
+                const right = compareItems[1];
+                compareRoot.className = 'compare-grid enhanced-compare-grid object-compare-grid';
+                compareRoot.innerHTML = `
+                    <article class="compare-card premium-compare-side">
+                        <h4>${escapeHtml(left.title)}</h4>
+                        <p>${escapeHtml(left.district)} · ${escapeHtml(left.price_compact)}</p>
+                        <div class="premium-compare-metrics">
+                            <p>Score <strong>${Number(left.scores.object_score || 0).toFixed(1)}</strong></p>
+                            <p>Уверенность <strong>${left.confidence_score}</strong></p>
+                            <p>Транспорт <strong>${Number(left.scores.transport_score || 0).toFixed(0)}</strong></p>
+                            <p>Семья <strong>${Number(left.scores.family_score || 0).toFixed(0)}</strong></p>
+                        </div>
+                    </article>
+                    <article class="compare-card premium-verdict-card">
+                        <span class="section-kicker">Объектный verdict</span>
+                        <h4>${escapeHtml(Number(left.scores.object_score || 0) >= Number(right.scores.object_score || 0) ? left.title : right.title)}</h4>
+                        <p class="verdict-lead">Разница по цене ${Math.abs(Number(left.price || 0) - Number(right.price || 0)).toLocaleString('ru-RU')} ₽.</p>
+                        <div class="verdict-spotlight">${escapeHtml(left.title)}: ${escapeHtml(left.explain_summary)} · ${escapeHtml(right.title)}: ${escapeHtml(right.explain_summary)}</div>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <h4>${escapeHtml(right.title)}</h4>
+                        <p>${escapeHtml(right.district)} · ${escapeHtml(right.price_compact)}</p>
+                        <div class="premium-compare-metrics">
+                            <p>Score <strong>${Number(right.scores.object_score || 0).toFixed(1)}</strong></p>
+                            <p>Уверенность <strong>${right.confidence_score}</strong></p>
+                            <p>Транспорт <strong>${Number(right.scores.transport_score || 0).toFixed(0)}</strong></p>
+                            <p>Семья <strong>${Number(right.scores.family_score || 0).toFixed(0)}</strong></p>
+                        </div>
+                    </article>`;
+            }
+
+            function syncActionButtons() {
+                const favorites = window.__serverSavedFavorites || [];
+                const shortlist = window.__serverSavedShortlist || [];
+                const compare = window.__serverSavedCompare || [];
+                document.querySelectorAll('[data-favorite-toggle]').forEach(function (button) {
+                    const active = favorites.includes(Number(button.dataset.favoriteToggle));
+                    button.classList.toggle('active', active);
+                    button.textContent = active ? 'В избранном' : 'В избранное';
+                });
+                document.querySelectorAll('[data-shortlist-toggle]').forEach(function (button) {
+                    const active = shortlist.includes(Number(button.dataset.shortlistToggle));
+                    button.classList.toggle('active', active);
+                    button.textContent = active ? 'В shortlist' : 'В shortlist';
+                });
+                document.querySelectorAll('[data-compare-toggle]').forEach(function (button) {
+                    const active = compare.includes(Number(button.dataset.compareToggle));
+                    button.classList.toggle('active', active);
+                    button.textContent = active ? 'В сравнении' : 'Сравнить';
+                });
+            }
+
+            document.querySelectorAll('[data-favorite-toggle]').forEach(function (button) {
+                button.addEventListener('click', async function () {
+                    const payload = await toggleServerList('favorite', button.dataset.favoriteToggle);
+                    if (!payload) return;
+                    const current = new Set(window.__serverSavedFavorites || []);
+                    if (payload.active) current.add(Number(button.dataset.favoriteToggle));
+                    else current.delete(Number(button.dataset.favoriteToggle));
+                    window.__serverSavedFavorites = Array.from(current);
+                    syncActionButtons();
+                    renderSavedLists();
+                });
+            });
+
+            document.querySelectorAll('[data-shortlist-toggle]').forEach(function (button) {
+                button.addEventListener('click', async function () {
+                    const payload = await toggleServerList('shortlist', button.dataset.shortlistToggle);
+                    if (!payload) return;
+                    const current = new Set(window.__serverSavedShortlist || []);
+                    if (payload.active) current.add(Number(button.dataset.shortlistToggle));
+                    else current.delete(Number(button.dataset.shortlistToggle));
+                    window.__serverSavedShortlist = Array.from(current);
+                    syncActionButtons();
+                    renderSavedLists();
+                });
+            });
+
+            document.querySelectorAll('[data-compare-toggle]').forEach(function (button) {
+                button.addEventListener('click', async function () {
+                    const payload = await toggleServerList('compare', button.dataset.compareToggle);
+                    if (!payload) return;
+                    const current = new Set(window.__serverSavedCompare || []);
+                    if (payload.active) current.add(Number(button.dataset.compareToggle));
+                    else current.delete(Number(button.dataset.compareToggle));
+                    window.__serverSavedCompare = Array.from(current);
+                    syncActionButtons();
+                    renderCompare();
+                });
+            });
+
+            if (shareShortlistBtn) {
+                shareShortlistBtn.addEventListener('click', async function () {
+                    const payload = await createShare('shortlist');
+                    if (payload && payload.url) {
+                        window.prompt('Share-link shortlist (HTML / PDF)', payload.url + ' | ' + (payload.pdf_url || ''));
+                    }
+                });
+            }
+
+            if (shareCompareBtn) {
+                shareCompareBtn.addEventListener('click', async function () {
+                    const payload = await createShare('compare');
+                    if (payload && payload.url) {
+                        window.prompt('Ссылка на сравнение (HTML / PDF)', payload.url + ' | ' + (payload.pdf_url || ''));
+                    }
+                });
+            }
+
+            if (onboardingForm && onboardingPreset) {
+                onboardingForm.addEventListener('submit', function () {
+                    const priority = document.getElementById('onboarding-priority');
+                    const budget = document.getElementById('onboarding-budget');
+                    const commute = document.getElementById('onboarding-commute');
+                    const candidates = [priority && priority.value, budget && budget.value, commute && commute.value].filter(Boolean);
+                    onboardingPreset.value = candidates[candidates.length - 1] || 'balanced-top';
+                });
+            }
+
+            fetchSavedLists().then(function (payload) {
+                window.__serverSavedFavorites = payload.favorite || [];
+                window.__serverSavedShortlist = payload.shortlist || [];
+                window.__serverSavedCompare = payload.compare || [];
+                syncActionButtons();
+                renderSavedLists();
+                renderCompare();
+            }).catch(function () {
+                window.__serverSavedFavorites = [];
+                window.__serverSavedShortlist = [];
+                window.__serverSavedCompare = [];
+                syncActionButtons();
+                renderSavedLists();
+                renderCompare();
             });
         })();
     </script>

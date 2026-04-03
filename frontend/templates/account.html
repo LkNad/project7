@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Аккаунт</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+</head>
+<body class="analytics-page-body">
+    <div class="page-shell map-first-shell">
+        <div class="container analytics-page-container">
+            <section class="premium-panel analytics-header detail-hero-panel">
+                <div class="analytics-hero-compact detail-hero-grid account-hero-grid">
+                    <div class="analytics-hero-copy">
+                        <span class="section-kicker">Аккаунт</span>
+                        <h3>{% if user %}{{ user[1] }}{% else %}Войти или зарегистрироваться{% endif %}</h3>
+                        <p class="section-note">Личный кабинет хранит веса, избранное, shortlist, сравнение, shared-отчеты и историю действий в серверном профиле.</p>
+                    </div>
+                    <div class="detail-hero-actions">
+                        <a href="{{ url_for('workspace.index') }}" class="btn-link-map">Подбор</a>
+                        <a href="{{ url_for('workspace.methodology_page') }}" class="btn-link-map">Методология</a>
+                        {% if user %}
+                        <form method="POST" action="{{ url_for('account.logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-reset">Выйти</button></form>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+
+            {% if message %}<section class="premium-panel product-status-panel analytics-layer status-error"><p class="section-note">{{ message }}</p></section>{% endif %}
+
+            <section class="premium-panel analytics-health-panel analytics-layer">
+                <div class="section-head compact-head"><div><span class="section-kicker">Профиль</span><h3>Живой профиль пользователя</h3></div></div>
+                <div class="analytics-health-grid detail-health-grid">
+                    <article><span>Избранное</span><strong>{{ dashboard_stats.favorites }}</strong><small>объектов сохранено</small></article>
+                    <article><span>Shortlist</span><strong>{{ dashboard_stats.shortlist }}</strong><small>объектов в рабочем наборе</small></article>
+                    <article><span>Сравнение</span><strong>{{ dashboard_stats.compare }}</strong><small>активно в сравнении</small></article>
+                    <article><span>Reports</span><strong>{{ dashboard_stats.reports }}</strong><small>share-links и PDF</small></article>
+                    <article><span>История</span><strong>{{ dashboard_stats.events }}</strong><small>событий профиля</small></article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="detail-columns-grid account-columns-grid">
+                    {% if not user %}
+                    <form method="POST" class="compare-card premium-compare-side account-auth-card">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <span class="section-kicker">Вход</span>
+                        <input type="hidden" name="action" value="login">
+                        <input type="email" name="email" placeholder="Email">
+                        <input type="password" name="password" placeholder="Пароль">
+                        <button type="submit" class="btn-apply">Войти</button>
+                    </form>
+                    <form method="POST" class="compare-card premium-compare-side account-auth-card">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <span class="section-kicker">Регистрация</span>
+                        <input type="hidden" name="action" value="register">
+                        <input type="email" name="email" placeholder="Email">
+                        <input type="password" name="password" placeholder="Пароль">
+                        <button type="submit" class="btn-apply">Создать аккаунт</button>
+                    </form>
+                    {% else %}
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Профиль</span>
+                        <p>{{ user[1] }}</p>
+                        <p>Создан: {{ user[3] }}</p>
+                        <p>Сценарий профиля влияет на shortlist, compare и ranking прямо в выдаче.</p>
+                        <div class="shortlist-actions top-report-actions">
+                            <a href="{{ url_for('workspace.index') }}" class="btn-link-map">Пересчитать под мой профиль</a>
+                            <a href="{{ url_for('workspace.data_quality_page') }}" class="btn-link-map">Качество данных</a>
+                        </div>
+                    </article>
+                    <form method="POST" class="compare-card premium-compare-side weight-editor-card">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <span class="section-kicker">Редактор весов</span>
+                        <input type="hidden" name="action" value="save_weights">
+                        <div class="weight-slider-grid" data-weight-group="object">
+                            <label>Цена / качество <input type="range" min="0" max="100" step="1" name="weight_value" value="{{ (weights.score_weights.value if weights else 30)|round(0) }}"><span class="weight-value">{{ (weights.score_weights.value if weights else 30)|round(0) }}%</span></label>
+                            <label>Транспорт <input type="range" min="0" max="100" step="1" name="weight_transport" value="{{ (weights.score_weights.transport if weights else 25)|round(0) }}"><span class="weight-value">{{ (weights.score_weights.transport if weights else 25)|round(0) }}%</span></label>
+                            <label>Инфраструктура <input type="range" min="0" max="100" step="1" name="weight_infra" value="{{ (weights.score_weights.infra if weights else 20)|round(0) }}"><span class="weight-value">{{ (weights.score_weights.infra if weights else 20)|round(0) }}%</span></label>
+                            <label>Fit <input type="range" min="0" max="100" step="1" name="weight_fit" value="{{ (weights.score_weights.fit if weights else 15)|round(0) }}"><span class="weight-value">{{ (weights.score_weights.fit if weights else 15)|round(0) }}%</span></label>
+                            <label>Бонус района <input type="range" min="0" max="100" step="1" name="weight_district_bonus" value="{{ (weights.score_weights.district_bonus if weights else 10)|round(0) }}"><span class="weight-value">{{ (weights.score_weights.district_bonus if weights else 10)|round(0) }}%</span></label>
+                        </div>
+                        <div class="weight-slider-grid district-weight-grid" data-weight-group="district">
+                            <label>Объектный вклад <input type="range" min="0" max="100" step="1" name="district_weight_object" value="{{ (weights.district_score_weights.object if weights else 35)|round(0) }}"><span class="weight-value">{{ (weights.district_score_weights.object if weights else 35)|round(0) }}%</span></label>
+                            <label>Транспорт района <input type="range" min="0" max="100" step="1" name="district_weight_transport" value="{{ (weights.district_score_weights.transport if weights else 20)|round(0) }}"><span class="weight-value">{{ (weights.district_score_weights.transport if weights else 20)|round(0) }}%</span></label>
+                            <label>Инфраструктура района <input type="range" min="0" max="100" step="1" name="district_weight_infra" value="{{ (weights.district_score_weights.infra if weights else 20)|round(0) }}"><span class="weight-value">{{ (weights.district_score_weights.infra if weights else 20)|round(0) }}%</span></label>
+                            <label>Семейный сценарий <input type="range" min="0" max="100" step="1" name="district_weight_family" value="{{ (weights.district_score_weights.family if weights else 15)|round(0) }}"><span class="weight-value">{{ (weights.district_score_weights.family if weights else 15)|round(0) }}%</span></label>
+                            <label>Инвестиционный сценарий <input type="range" min="0" max="100" step="1" name="district_weight_investment" value="{{ (weights.district_score_weights.investment if weights else 10)|round(0) }}"><span class="weight-value">{{ (weights.district_score_weights.investment if weights else 10)|round(0) }}%</span></label>
+                        </div>
+                        <button type="submit" class="btn-apply">Сохранить веса</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head"><div><span class="section-kicker">Предпросмотр</span><h3>Как веса меняют shortlist</h3></div></div>
+                <div class="detail-columns-grid account-list-columns before-after-grid">
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">До профиля</span>
+                        <div class="shortlist-grid account-mini-grid">
+                            {% for item in baseline_shortlist %}
+                            <article class="shortlist-card"><strong>{{ item.title }}</strong><p>{{ item.price_compact }}</p></article>
+                            {% endfor %}
+                        </div>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">После профиля</span>
+                        <div class="shortlist-grid account-mini-grid" id="preview-shortlist-grid">
+                            {% for item in preview_shortlist %}
+                            <article class="shortlist-card">
+                                <strong>{{ item.title }}</strong>
+                                <p>{{ item.price_compact }} · {{ item.explain_summary }}</p>
+                                <div class="shortlist-actions">
+                                    <a href="{{ url_for('workspace.listing_detail', listing_id=item.id) }}">Карточка объекта</a>
+                                    <a href="{{ url_for('workspace.map_page', focus_listing=item.id) }}">На карте</a>
+                                </div>
+                            </article>
+                            {% endfor %}
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head"><div><span class="section-kicker">До / после</span><h3>Как профиль меняет рейтинг районов</h3></div></div>
+                <div class="shortlist-grid account-mini-grid">
+                    {% for item in district_preview %}
+                    <article class="shortlist-card">
+                        <strong>{{ item.district }}</strong>
+                        <p>было #{{ item.base_rank or '—' }} · стало #{{ item.weighted_rank or '—' }}</p>
+                        <p>{% if item.delta > 0 %}поднялся на {{ item.delta }}{% elif item.delta < 0 %}опустился на {{ item.delta|abs }}{% else %}без изменений{% endif %}</p>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="premium-panel object-compare-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head"><div><span class="section-kicker">Сравнение</span><h3>Аналитика по двум объектам из профиля</h3></div></div>
+                {% if compare_dashboard %}
+                <div class="detail-columns-grid account-list-columns">
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Победитель</span>
+                        <strong>{{ compare_dashboard.winner.title }}</strong>
+                        <p>{{ compare_dashboard.winner.price_compact }} · уверенность {{ compare_dashboard.winner.confidence_score }}</p>
+                    </article>
+                    <article class="compare-card premium-verdict-card">
+                        <span class="section-kicker">Вердикт</span>
+                        <h4>{{ compare_dashboard.winner.title }}</h4>
+                        <p class="verdict-lead">{{ compare_dashboard.summary }}</p>
+                        <div class="verdict-stats-row">
+                            <span>Разница по оценке {{ compare_dashboard.score_gap }}</span>
+                            <span>Разница по цене {{ "{:,.0f}".format(compare_dashboard.price_gap).replace(",", " ") }} ₽</span>
+                            <span>Разница по уверенности {{ compare_dashboard.confidence_gap }}</span>
+                        </div>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Альтернатива</span>
+                        <strong>{{ compare_dashboard.loser.title }}</strong>
+                        <p>{{ compare_dashboard.loser.price_compact }} · уверенность {{ compare_dashboard.loser.confidence_score }}</p>
+                    </article>
+                </div>
+                {% else %}
+                <p class="empty-state">Добавьте два объекта в сравнение, чтобы панель показала аналитический вердикт.</p>
+                {% endif %}
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head"><div><span class="section-kicker">Мои секции</span><h3>Избранное, shortlist и сравнение</h3></div></div>
+                <div class="detail-columns-grid account-list-columns">
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Избранное</span>
+                        <div class="shortlist-grid account-mini-grid">
+                            {% for item in favorite_cards %}
+                            <article class="shortlist-card"><strong>{{ item.title }}</strong><p>{{ item.price_compact }}</p></article>
+                            {% endfor %}
+                        </div>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Shortlist</span>
+                        <div class="shortlist-grid account-mini-grid">
+                            {% for item in shortlist_cards %}
+                            <article class="shortlist-card"><strong>{{ item.title }}</strong><p>{{ item.price_compact }}</p></article>
+                            {% endfor %}
+                        </div>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Сравнение</span>
+                        <div class="shortlist-grid account-mini-grid">
+                            {% for item in compare_cards %}
+                            <article class="shortlist-card"><strong>{{ item.title }}</strong><p>{{ item.price_compact }}</p></article>
+                            {% endfor %}
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="detail-columns-grid account-columns-grid">
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">История действий</span>
+                        <ul class="reason-list clean-list">
+                            {% for event in events %}
+                            <li>{{ event[2] }} · {{ event[0] }}</li>
+                            {% endfor %}
+                        </ul>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Мои shared-отчеты</span>
+                        <ul class="reason-list clean-list">
+                            {% for report in reports %}
+                            <li><a href="{{ url_for('reports.shared_report', token=report[0]) }}">{{ report[1] }}</a> · <a href="{{ url_for('reports.shared_report_pdf', token=report[0]) }}">PDF</a> · {{ report[2] }}</li>
+                            {% endfor %}
+                        </ul>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Сырые сохранения</span>
+                        <ul class="reason-list clean-list">
+                            {% for item in saved_items %}
+                            <li>{{ item[2] }} · listing {{ item[0] }} · {{ item[3] }}</li>
+                            {% endfor %}
+                        </ul>
+                    </article>
+                </div>
+            </section>
+        </div>
+    </div>
+    <script>
+        (function () {
+            const previewPool = {{ preview_pool|tojson }};
+            const previewRoot = document.getElementById('preview-shortlist-grid');
+            const weightForm = document.querySelector('.weight-editor-card');
+            if (!previewPool.length || !weightForm || !previewRoot) {
+                return;
+            }
+
+            function escapeHtml(value) {
+                return String(value ?? '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function normalizeWeights(values) {
+                const total = values.reduce((sum, value) => sum + Math.max(Number(value) || 0, 0), 0) || 1;
+                return values.map(function (value) { return (Math.max(Number(value) || 0, 0) / total); });
+            }
+
+            function updateLabels() {
+                weightForm.querySelectorAll('label').forEach(function (label) {
+                    const input = label.querySelector('input[type="range"]');
+                    const output = label.querySelector('.weight-value');
+                    if (input && output) {
+                        output.textContent = input.value + '%';
+                    }
+                });
+            }
+
+            function renderPreview() {
+                const inputs = {
+                    value: Number(weightForm.querySelector('[name="weight_value"]').value || 0),
+                    transport: Number(weightForm.querySelector('[name="weight_transport"]').value || 0),
+                    infra: Number(weightForm.querySelector('[name="weight_infra"]').value || 0),
+                    fit: Number(weightForm.querySelector('[name="weight_fit"]').value || 0),
+                    district_bonus: Number(weightForm.querySelector('[name="weight_district_bonus"]').value || 0)
+                };
+                const weights = normalizeWeights([inputs.value, inputs.transport, inputs.infra, inputs.fit, inputs.district_bonus]);
+                const ranked = previewPool.map(function (item) {
+                    const scores = item.scores || {};
+                    const previewScore =
+                        Number(scores.value_score || 0) * weights[0] +
+                        Number(scores.transport_score || 0) * weights[1] +
+                        Number(scores.infra_score || 0) * weights[2] +
+                        Number(scores.fit_score || 0) * weights[3] +
+                        Number(scores.district_bonus || 0) * weights[4];
+                    return Object.assign({}, item, { previewScore: previewScore });
+                }).sort(function (a, b) { return b.previewScore - a.previewScore; }).slice(0, 4);
+
+                previewRoot.innerHTML = ranked.map(function (item) {
+                    return '<article class="shortlist-card"><strong>' + escapeHtml(item.title) + '</strong><p>' + escapeHtml(item.price_compact) + ' · предпросмотр ' + escapeHtml(item.previewScore.toFixed(1)) + '</p><div class="shortlist-actions"><a href="/listing/' + encodeURIComponent(item.id) + '">Карточка объекта</a><a href="/map?focus_listing=' + encodeURIComponent(item.id) + '">На карте</a></div></article>';
+                }).join('');
+            }
+
+            weightForm.querySelectorAll('input[type="range"]').forEach(function (input) {
+                input.addEventListener('input', function () {
+                    updateLabels();
+                    renderPreview();
+                });
+            });
+
+            updateLabels();
+            renderPreview();
+        })();
+    </script>
+</body>
+</html>

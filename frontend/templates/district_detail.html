@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="analytics-page-body">
+    <div class="page-shell map-first-shell">
+        <div class="container analytics-page-container">
+            {% if district %}
+            <section class="premium-panel analytics-header detail-hero-panel">
+                <div class="analytics-hero-compact detail-hero-grid">
+                    <div class="analytics-hero-copy">
+                        <span class="section-kicker">Районная decision page</span>
+                        <h3>{{ district.district }}</h3>
+                        <p class="section-note">{{ district.profile_label_ru }} · {{ district.quality_band }}</p>
+                        <div class="detail-hero-metrics">
+                            <span>score {{ "%.1f"|format(district.district_score) }}</span>
+                            <span>{{ "{:,.0f}".format(district.avg_price).replace(",", " ") }} ₽</span>
+                            <span>{{ district.listing_count }} объектов</span>
+                            <a href="{{ url_for('workspace.methodology_page') }}" class="methodology-hint" title="Как считаются районные оценки">?</a>
+                        </div>
+                    </div>
+                    <div class="detail-hero-actions">
+                        <a href="{{ url_for('workspace.map_page', district=district.district) }}" class="btn-link-map">Открыть на карте</a>
+                        <a href="{{ url_for('workspace.methodology_page') }}" class="btn-link-map">Как считаются оценки</a>
+                    </div>
+                </div>
+            </section>
+
+            <section class="premium-panel analytics-health-panel analytics-layer">
+                <div class="analytics-health-grid detail-health-grid">
+                    <article><span>Семья</span><strong>{{ "%.0f"|format(district.family_score) }}</strong><small>Семейный сценарий</small></article>
+                    <article><span>Транспорт</span><strong>{{ "%.0f"|format(district.transport_score) }}</strong><small>Доступность и связность</small></article>
+                    <article><span>Инвестиции</span><strong>{{ "%.0f"|format(district.investment_score) }}</strong><small>Инвест-привлекательность</small></article>
+                    <article><span>Цена / качество</span><strong>{{ "%.0f"|format(district.budget_fit_score) }}</strong><small>{{ data_quality.filtered }} объектов в срезе</small></article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Почему район высоко</span>
+                        <h3>Ключевые сигналы района</h3>
+                    </div>
+                </div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Highlights</span>
+                        <ul class="reason-list clean-list">
+                            {% for item in district.highlights %}
+                            <li>{{ item }}</li>
+                            {% endfor %}
+                        </ul>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Сигнал качества данных</span>
+                        <p>{{ data_quality.note }}</p>
+                    </article>
+                    <article class="compare-card premium-compare-side">
+                        <span class="section-kicker">Структура оценки</span>
+                        <div class="premium-compare-metrics">
+                            {% for part in ranking_explainer %}
+                            <p>{{ part.label }} <strong>{{ part.share }}%</strong></p>
+                            {% endfor %}
+                        </div>
+                        <div class="stacked-explainer-bar" aria-label="Вклад метрик в районный score">
+                            {% for part in ranking_explainer %}
+                            <span class="stacked-segment segment-{{ loop.index }}" style="width: {{ part.share }}%" title="{{ part.label }} — {{ part.share }}%"></span>
+                            {% endfor %}
+                        </div>
+                    </article>
+                </div>
+            </section>
+
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="section-head compact-head shortlist-head">
+                    <div>
+                        <span class="section-kicker">Лучшие объекты района</span>
+                        <h3>Что смотреть в первую очередь</h3>
+                    </div>
+                </div>
+                <div class="shortlist-grid">
+                    {% for item in listings %}
+                    <article class="shortlist-card">
+                        <strong>{{ item.title }}</strong>
+                        <p>{{ item.price_compact }} · уверенность {{ item.confidence_score }} · доверие {{ item.source_trust_score }}</p>
+                        <p>{{ item.geo_precision_label }} · {{ item.geo_precision_note }}</p>
+                        <div class="shortlist-actions">
+                            <a href="{{ url_for('workspace.listing_detail', listing_id=item.id) }}">Карточка объекта</a>
+                            <a href="{{ url_for('workspace.map_page', focus_listing=item.id) }}">На карте</a>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+            {% else %}
+            <section class="premium-panel analytics-health-panel analytics-layer status-error">
+                <div class="section-head compact-head">
+                    <div>
+                        <span class="section-kicker">Район</span>
+                        <h3>Район не найден</h3>
+                        <p class="section-note">Для выбранного района нет аналитического профиля.</p>
+                    </div>
+                </div>
+            </section>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Как считаются оценки</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="analytics-page-body">
+    <div class="page-shell map-first-shell">
+        <div class="container analytics-page-container">
+            <section class="premium-panel analytics-header detail-hero-panel">
+                <div class="analytics-hero-copy">
+                    <span class="section-kicker">Методология</span>
+                    <h3>Как считаются оценки и почему им можно доверять</h3>
+                    <p class="section-note">Страница объясняет формулы итоговой оценки объекта, оценки района, доверия к источнику, уверенности в карточке, свежести и логику объяснения ранжирования без черного ящика.</p>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head"><div><span class="section-kicker">Оценка объекта</span><h3>Итоговая оценка объекта</h3></div></div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side"><p>`object_score = value*0.30 + transport*0.25 + infra*0.20 + fit*0.15 + district_bonus*0.10`</p></article>
+                    <article class="compare-card premium-compare-side"><p><strong>Цена / качество</strong> показывает, насколько объект лучше или хуже медианы района по цене за м².</p></article>
+                    <article class="compare-card premium-compare-side"><p><strong>Fit к фильтрам</strong> учитывает бюджет, комнаты, район и ограничение по метро.</p></article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head"><div><span class="section-kicker">Оценка района</span><h3>Итоговая оценка района</h3></div></div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side"><p>`district_score = object*0.35 + transport*0.20 + infra*0.20 + family*0.15 + investment*0.10`</p></article>
+                    <article class="compare-card premium-compare-side"><p>Районный рейтинг строится не по одной средней цене, а по среднему качеству объектов, транспорту, инфраструктуре и сценарным подоценкам.</p></article>
+                    <article class="compare-card premium-compare-side"><p>Объяснение ранжирования раскладывает итоговую оценку обратно на доли вклада по метрикам.</p></article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head"><div><span class="section-kicker">Доверие и уверенность</span><h3>Почему доверие к источнику и уверенность в карточке не равны друг другу</h3></div></div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side"><p><strong>Доверие к источнику</strong> зависит от класса источника и качества карточки. Это оценка надежности происхождения данных.</p></article>
+                    <article class="compare-card premium-compare-side"><p><strong>Уверенность в объекте</strong> зависит от полноты карточки, качества геокодинга, числа подтверждающих причин и наличия метро-данных.</p></article>
+                    <article class="compare-card premium-compare-side"><p><strong>Свежесть</strong> показывает возраст по `created_at`: часы, дни, месяцы. Старые объявления выглядят менее надежно при принятии решения.</p></article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head"><div><span class="section-kicker">История цены</span><h3>Как работает история цены</h3></div></div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side"><p>Каждое обновление базы создает снапшот в `listing_price_snapshots` по сигнатуре объекта: адрес, район, округленная цена и комнаты.</p></article>
+                    <article class="compare-card premium-compare-side"><p>Если объект появляется в нескольких снимках, на карточке объекта строится история цены, дельта и тренд.</p></article>
+                    <article class="compare-card premium-compare-side"><p>Если снимок пока один, интерфейс честно говорит, что история накопится позже.</p></article>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>

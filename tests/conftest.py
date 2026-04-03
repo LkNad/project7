@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from backend.DataFetcher import DataFetcher
+from backend.config import AppConfig
 
 
 @pytest.fixture
@@ -21,7 +22,11 @@ def sample_html_path():
 @pytest.fixture
 def populated_db_path(tmp_path, sample_html_path):
     db_path = tmp_path / "test_data.db"
-    fetcher = DataFetcher(source=str(sample_html_path), db_path=str(db_path))
+    fetcher = DataFetcher(
+        source=str(sample_html_path),
+        db_path=str(db_path),
+        config=AppConfig(db_path=db_path, remote_geocoding_enabled=False),
+    )
     fetcher.refresh_database(reset=True)
     return db_path
 
@@ -29,7 +34,11 @@ def populated_db_path(tmp_path, sample_html_path):
 @pytest.fixture
 def demo_db_path(tmp_path):
     db_path = tmp_path / "demo_data.db"
-    fetcher = DataFetcher(source="test://default", db_path=str(db_path))
+    fetcher = DataFetcher(
+        source="test://default",
+        db_path=str(db_path),
+        config=AppConfig(db_path=db_path, remote_geocoding_enabled=False),
+    )
     fetcher.refresh_database(reset=True)
     return db_path
 
@@ -37,7 +46,7 @@ def demo_db_path(tmp_path):
 @pytest.fixture
 def empty_db_path(tmp_path):
     db_path = tmp_path / "empty.db"
-    fetcher = DataFetcher(db_path=str(db_path))
+    fetcher = DataFetcher(db_path=str(db_path), config=AppConfig(db_path=db_path, remote_geocoding_enabled=False))
     fetcher.initialize_database()
     return db_path
 

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отчет</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="analytics-page-body">
+    <div class="page-shell map-first-shell">
+        <div class="container analytics-page-container">
+            {% if report %}
+            <section class="premium-panel analytics-header detail-hero-panel">
+                <div class="analytics-hero-copy">
+                    <span class="section-kicker">Shareable report</span>
+                    <h3>{{ 'Shortlist' if report['type'] == 'shortlist' else 'Сравнение объектов' }}</h3>
+                    <p class="section-note">Создан {{ report.created_at }}. Эту страницу можно открыть по ссылке, а PDF-версию скачать прямо с сервера.</p>
+                    <div class="detail-hero-actions">
+                        <a href="{{ request.path }}.pdf" class="btn-link-map">Скачать PDF</a>
+                    </div>
+                </div>
+            </section>
+            <section class="premium-panel analytics-health-panel analytics-layer">
+                <div class="analytics-health-grid detail-health-grid">
+                    <article><span>Объектов</span><strong>{{ report['items']|length }}</strong><small>в отчете</small></article>
+                    <article><span>Среднее доверие</span><strong>{{ ((report['items']|sum(attribute='source_trust_score')) / (report['items']|length if report['items'] else 1))|round(1) }}</strong><small>по всем карточкам</small></article>
+                    <article><span>Средняя уверенность</span><strong>{{ ((report['items']|sum(attribute='confidence_score')) / (report['items']|length if report['items'] else 1))|round(1) }}</strong><small>по всем карточкам</small></article>
+                    <article><span>Профиль свежести</span><strong>{{ report['items']|map(attribute='freshness_label')|list|join(', ') }}</strong><small>по источникам</small></article>
+                </div>
+            </section>
+            <section class="premium-panel shortlist-panel analytics-layer">
+                <div class="shortlist-grid">
+                    {% for item in report['items'] %}
+                    <article class="shortlist-card">
+                        <strong>{{ item.title }}</strong>
+                        <p>{{ item.district }} · {{ item.price_compact }} · доверие {{ item.source_trust_score }} · уверенность {{ item.confidence_score }}</p>
+                        <div class="listing-trust-row">
+                            <span class="listing-trust-pill trust-{{ item.trust_band|default('mid') }}">{{ item.source_label }}</span>
+                            <span class="listing-trust-pill trust-{{ item.geo_precision_tone|default('mid') }}" title="{{ item.geo_precision_note }}">{{ item.geo_precision_label }}</span>
+                            <span class="listing-trust-pill freshness-{{ item.freshness_bucket|default('unknown')|replace('_', '-') }}">{{ item.freshness_label }}</span>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+            {% else %}
+            <section class="premium-panel product-status-panel analytics-layer status-error"><p class="section-note">Отчет не найден.</p></section>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

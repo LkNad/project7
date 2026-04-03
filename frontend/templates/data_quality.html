@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Качество данных</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="analytics-page-body">
+    <div class="page-shell map-first-shell">
+        <div class="container analytics-page-container">
+            <section class="premium-panel analytics-header detail-hero-panel">
+                <div class="analytics-hero-copy">
+                    <span class="section-kicker">Качество данных</span>
+                    <h3>Состояние runtime-датасета и геокодинга</h3>
+                    <p class="section-note">Страница показывает, сколько объектов загружено в базу, откуда взялись координаты и сколько строк было отброшено при очистке CSV.</p>
+                </div>
+            </section>
+
+            <section class="premium-panel analytics-health-panel analytics-layer">
+                <div class="analytics-health-grid detail-health-grid">
+                    <article><span>Raw CSV</span><strong>{{ quality.raw_rows }}</strong><small>строк в исходном файле</small></article>
+                    <article><span>В базе</span><strong>{{ quality.listing_count }}</strong><small>объектов после rebuild</small></article>
+                    <article><span>Nominatim</span><strong>{{ quality.nominatim_count }}</strong><small>адресный remote-geocoding</small></article>
+                    <article><span>Fallback</span><strong>{{ quality.fallback_count }}</strong><small>deterministic-local точки</small></article>
+                    <article><span>Source payload</span><strong>{{ quality.provided_count }}</strong><small>координаты из исходных данных</small></article>
+                    <article><span>Отброшено</span><strong>{{ quality.dropped_rows }}</strong><small>строк при очистке CSV</small></article>
+                </div>
+            </section>
+
+            <section class="premium-panel compare-section analytics-layer">
+                <div class="section-head compact-head"><div><span class="section-kicker">Источник</span><h3>Откуда берутся числа</h3></div></div>
+                <div class="detail-columns-grid">
+                    <article class="compare-card premium-compare-side"><p><strong>Файл датасета:</strong> {{ quality.dataset_path }}</p></article>
+                    <article class="compare-card premium-compare-side"><p><strong>Очистка CSV:</strong> удаляются неполные строки без адреса, района, `price`, `area` или `source_url`, а также дубли по `source_url`.</p></article>
+                    <article class="compare-card premium-compare-side"><p><strong>Геокодинг:</strong> `nominatim` означает address-level lookup, `deterministic-local` — честный fallback без ложной точности, `source payload` — координаты пришли из источника.</p></article>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>

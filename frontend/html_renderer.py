@@ -1,5 +1,9 @@
 # frontend/html_renderer.py
+import json
 import math
+import re
+from pathlib import Path
+from datetime import datetime, timezone
 
 
 MAP_MODE_CONFIG = {
@@ -52,15 +56,228 @@ MAP_MODE_CONFIG = {
 
 
 CHART_COLORS = [
-    "#ff6384",
-    "#36a2eb",
-    "#ffce56",
-    "#4bc0c0",
-    "#9966ff",
-    "#ff9f40",
-    "#8ac6d1",
-    "#ff6b6b",
+    "#3b6cff",
+    "#16a34a",
+    "#f1b84b",
+    "#0f766e",
+    "#ea580c",
+    "#5f88ff",
+    "#7aa6c2",
+    "#1f4cc7",
 ]
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DISTRICT_GEOJSON_PATH = BASE_DIR / "frontend" / "static" / "data" / "districts.geojson"
+DISTRICT_NAME_ALIASES = {
+    "бирюлево восточное": "бирюлево восточное",
+    "медведково северное": "северное медведково",
+    "теплый стан": "теплый стан",
+    "хорошево-мневники": "хорошево-мневники",
+    "хорошево мневники": "хорошево-мневники",
+    "черемушки": "черемушки",
+    "хорошевский": "хорошевский",
+}
+SIMPLIFY_TOLERANCE = 0.00045
+
+
+ADDRESS_UNIT_RE = re.compile(
+    r"(?:,?\s*(?:кв(?:артира)?|ап(?:артамент)?|пом(?:ещение)?|оф(?:ис)?|комн(?:ата)?|room)\.?\s*\d+[а-яa-z0-9/-]*)$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_map_address(address):
+    cleaned = " ".join(str(address or "").split()).strip(" ,")
+    cleaned = ADDRESS_UNIT_RE.sub("", cleaned)
+    return cleaned.strip(" ,")
+
+
+def _freshness_payload(created_at):
+    if not created_at:
+        return {"freshness_label": "без даты", "freshness_bucket": "unknown"}
+    try:
+        created_dt = datetime.fromisoformat(str(created_at))
+        if created_dt.tzinfo is None:
+            created_dt = created_dt.replace(tzinfo=timezone.utc)
+        age_hours = max((datetime.now(timezone.utc) - created_dt).total_seconds() / 3600, 0)
+    except ValueError:
+        return {"freshness_label": str(created_at), "freshness_bucket": "unknown"}
+
+    if age_hours < 24:
+        return {"freshness_label": f"{int(age_hours) or 1} ч назад", "freshness_bucket": "fresh"}
+    age_days = age_hours / 24
+    if age_days < 7:
+        return {"freshness_label": f"{int(age_days)} д назад", "freshness_bucket": "recent"}
+    if age_days < 30:
+        return {"freshness_label": f"{int(age_days)} д назад", "freshness_bucket": "stale"}
+    return {"freshness_label": f"{int(age_days // 30) or 1} мес назад", "freshness_bucket": "old"}
+
+
+def _trust_band(score):
+    if score >= 85:
+        return "high"
+    if score >= 70:
+        return "mid"
+    return "low"
+
+
+def _geocode_quality_payload(item):
+    geocode_source = str(item.get("geocode_source") or "").lower()
+    geocode_confidence = float(item.get("geocode_confidence") or 0)
+    if geocode_source == "nominatim":
+        return {
+            "geo_precision_label": "гео: address-level",
+            "geo_precision_tone": "high",
+            "geo_precision_note": f"Nominatim, confidence {geocode_confidence:.2f}",
+        }
+    if geocode_source in {"source-payload", "provided"}:
+        return {
+            "geo_precision_label": "гео: source payload",
+            "geo_precision_tone": "mid",
+            "geo_precision_note": "Координаты пришли из исходного источника",
+        }
+    if geocode_source == "deterministic-local":
+        return {
+            "geo_precision_label": "гео: fallback",
+            "geo_precision_tone": "watch",
+            "geo_precision_note": f"Локальная детерминированная точка, confidence {geocode_confidence:.2f}",
+        }
+    return {
+        "geo_precision_label": "гео: unknown",
+        "geo_precision_tone": "watch",
+        "geo_precision_note": "Источник координат не подтвержден",
+    }
+
+
+def _normalize_district_name(name):
+    normalized = " ".join(str(name or "").lower().replace("ё", "е").split()).strip()
+    return DISTRICT_NAME_ALIASES.get(normalized, normalized)
+
+
+def _point_line_distance(point, start, end):
+    if start == end:
+        return math.dist(point, start)
+    numerator = abs(
+        (end[1] - start[1]) * point[0]
+        - (end[0] - start[0]) * point[1]
+        + end[0] * start[1]
+        - end[1] * start[0]
+    )
+    denominator = math.sqrt((end[1] - start[1]) ** 2 + (end[0] - start[0]) ** 2)
+    return numerator / denominator if denominator else 0
+
+
+def _simplify_ring(points, tolerance=SIMPLIFY_TOLERANCE):
+    if len(points) <= 5:
+        return points
+
+    closed = points[0] == points[-1]
+    working = points[:-1] if closed else points[:]
+    if len(working) <= 3:
+        return points
+
+    def _rdp(segment):
+        if len(segment) <= 2:
+            return segment
+        start = segment[0]
+        end = segment[-1]
+        max_distance = -1
+        split_index = 0
+        for index in range(1, len(segment) - 1):
+            distance = _point_line_distance(segment[index], start, end)
+            if distance > max_distance:
+                max_distance = distance
+                split_index = index
+        if max_distance <= tolerance:
+            return [start, end]
+        left = _rdp(segment[: split_index + 1])
+        right = _rdp(segment[split_index:])
+        return left[:-1] + right
+
+    simplified = _rdp(working)
+    if len(simplified) < 4:
+        return points
+    if closed:
+        simplified.append(simplified[0])
+    return simplified
+
+
+def _simplify_geometry(geometry):
+    if not isinstance(geometry, dict):
+        return geometry
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    if geometry_type == "Polygon" and isinstance(coordinates, list):
+        return {
+            "type": "Polygon",
+            "coordinates": [_simplify_ring(ring) for ring in coordinates if isinstance(ring, list)],
+        }
+    if geometry_type == "MultiPolygon" and isinstance(coordinates, list):
+        return {
+            "type": "MultiPolygon",
+            "coordinates": [
+                [_simplify_ring(ring) for ring in polygon if isinstance(ring, list)]
+                for polygon in coordinates
+                if isinstance(polygon, list)
+            ],
+        }
+    return geometry
+
+
+def _load_real_district_geojson():
+    if not DISTRICT_GEOJSON_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(DISTRICT_GEOJSON_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    features = payload.get("features") if isinstance(payload, dict) else None
+    if not isinstance(features, list):
+        return {}
+
+    feature_map = {}
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        props = feature.get("properties") or {}
+        names = [
+            props.get("district"),
+            props.get("name"),
+            props.get("NAME"),
+            props.get("adm_name"),
+            props.get("official_name"),
+        ]
+        for name in names:
+            normalized = _normalize_district_name(name)
+            if normalized:
+                feature_map[normalized] = feature
+    return feature_map
+
+
+def _stable_hash(value):
+    return sum((index + 1) * ord(char) for index, char in enumerate(str(value or "")))
+
+
+def _display_coordinates(item):
+    lat = item.get("lat")
+    lon = item.get("lon")
+    if lat in (None, 0, 0.0) or lon in (None, 0, 0.0):
+        return lat, lon
+
+    normalized_address = _normalize_map_address(item.get("address"))
+    geocode_source = str(item.get("geocode_source") or "").lower()
+    geocode_status = str(item.get("geocode_status") or "").lower()
+    needs_address_level_point = geocode_source in {"source-payload", "provided"} or geocode_status == "provided"
+
+    if not needs_address_level_point or not normalized_address:
+        return round(lat, 6), round(lon, 6)
+
+    seed = _stable_hash(normalized_address)
+    lat_base = round(lat, 3)
+    lon_base = round(lon, 3)
+    lat_offset = (((seed % 17) - 8) * 0.00003)
+    lon_offset = ((((seed // 17) % 17) - 8) * 0.00004)
+    return round(lat_base + lat_offset, 6), round(lon_base + lon_offset, 6)
 
 
 def _group_counts(data, key):
@@ -74,10 +291,6 @@ def build_chart_context(data, chart_type="bar"):
     chart_type = chart_type or "bar"
     if chart_type == "pie":
         return build_pie_chart_context(data)
-    if chart_type == "line":
-        return build_line_chart_context(data)
-    if chart_type == "table":
-        return {"type": "table", "title": "Таблица данных", "rows": data, "empty_message": "Нет данных для отображения"}
     return build_bar_chart_context(data)
 
 
@@ -90,7 +303,7 @@ def build_bar_chart_context(data):
             "count": count,
             "width_percent": round((count / max_count) * 100, 2) if max_count else 0,
         }
-        for district, count in districts.items()
+        for district, count in sorted(districts.items(), key=lambda item: (-item[1], item[0]))
     ]
     return {
         "type": "bar",
@@ -170,45 +383,66 @@ def build_pie_chart_context(data):
     }
 
 
-def build_line_chart_context(data):
-    prices = sorted(item["price"] for item in data)
-    if not prices:
-        return {
-            "type": "line",
-            "title": "Распределение цен по выборке",
-            "points": [],
-            "empty_message": "Нет данных для отображения",
-        }
-
-    max_price = max(prices)
-    if max_price <= 0:
-        return {
-            "type": "line",
-            "title": "Распределение цен по выборке",
-            "points": [],
-            "empty_message": "Нет корректных данных о ценах",
-        }
-
-    points = [
-        {
-            "price": price,
-            "height_percent": round((price / max_price) * 100, 2),
-            "index": index + 1,
-        }
-        for index, price in enumerate(prices)
-    ]
-    return {
-        "type": "line",
-        "title": "Распределение цен по выборке",
-        "points": points,
-        "empty_message": "Нет данных для отображения",
-    }
-
-
 def build_listing_cards_context(data):
+    prepared_items = []
+    for index, item in enumerate(data, start=1):
+        prepared = dict(item)
+        reasons = [reason.strip() for reason in (prepared.get("recommendation_reasons") or []) if str(reason).strip()]
+        score = round(prepared.get("scores", {}).get("object_score", prepared.get("object_score", 0)) or 0, 1)
+        strengths = []
+        caveats = []
+        if prepared.get("scores", {}).get("transport_score", 0) >= 75:
+            strengths.append("сильная транспортная доступность")
+        if prepared.get("scores", {}).get("family_score", 0) >= 75:
+            strengths.append("хороший семейный сценарий")
+        if prepared.get("scores", {}).get("value_score", 0) >= 70:
+            strengths.append("сильная цена/качество")
+        metro_time = prepared.get("metro_time_min")
+        if isinstance(metro_time, (int, float)) and metro_time > 18:
+            caveats.append("метро не в пешем радиусе")
+        if prepared.get("scores", {}).get("investment_score", 0) < 60:
+            caveats.append("не самый сильный инвест-сценарий")
+        if prepared.get("price_per_m2", 0) and prepared.get("scores", {}).get("value_score", 0) < 65:
+            caveats.append("цена за м² выше комфортного сценария")
+        completeness = 0
+        for key in ("image_url", "metro_station", "description", "url"):
+            if prepared.get(key):
+                completeness += 1
+        geocode_bonus = 14 if (prepared.get("geocode_source") or "").lower() == "nominatim" else 7 if prepared.get("lat") and prepared.get("lon") else 0
+        confidence_score = min(96, 52 + len(reasons) * 8 + completeness * 5 + geocode_bonus)
+        score_parts = {
+            "value": round((prepared.get("scores", {}).get("value_score", 0) * 0.30), 1),
+            "transport": round((prepared.get("scores", {}).get("transport_score", 0) * 0.25), 1),
+            "infra": round((prepared.get("scores", {}).get("infra_score", 0) * 0.20), 1),
+            "fit": round((prepared.get("scores", {}).get("fit_score", 0) * 0.15), 1),
+            "district_bonus": round((prepared.get("scores", {}).get("district_bonus", 0) * 0.10), 1),
+        }
+        total_parts = sum(score_parts.values()) or 1
+        explain_parts = [
+            {"label": "Цена / качество", "value": score_parts["value"], "share": round(score_parts["value"] / total_parts * 100)},
+            {"label": "Транспорт", "value": score_parts["transport"], "share": round(score_parts["transport"] / total_parts * 100)},
+            {"label": "Инфраструктура", "value": score_parts["infra"], "share": round(score_parts["infra"] / total_parts * 100)},
+            {"label": "Fit к фильтрам", "value": score_parts["fit"], "share": round(score_parts["fit"] / total_parts * 100)},
+            {"label": "Бонус района", "value": score_parts["district_bonus"], "share": round(score_parts["district_bonus"] / total_parts * 100)},
+        ]
+        prepared["recommendation_reasons"] = reasons
+        prepared["price_compact"] = prepared.get("price_compact") or _format_price_compact(prepared.get("price", 0))
+        prepared["marker_badge"] = prepared.get("marker_badge") or ("Топ" if index <= 5 else "Выбор")
+        prepared["marker_note"] = prepared.get("marker_note") or f"Сценарий {score}/100"
+        prepared["explain_summary"] = strengths[0] if strengths else f"сценарный score {score} поддерживает объект в shortlist"
+        prepared["caveat"] = caveats[0] if caveats else "явных красных флагов по текущим фильтрам не видно"
+        prepared["shortlist_rank"] = index if index <= 4 else None
+        prepared["confidence_score"] = confidence_score
+        prepared["confidence_note"] = "Собран из полноты карточки, качества геокодинга и числа подтверждающих сигналов."
+        prepared["score_explainer"] = explain_parts
+        prepared["score_penalties"] = caveats[:3]
+        prepared.update(_freshness_payload(prepared.get("created_at")))
+        prepared.update(_geocode_quality_payload(prepared))
+        prepared["trust_band"] = _trust_band(prepared.get("source_trust_score", 60))
+        prepared_items.append(prepared)
     return {
         "title": "Карта и карточки объектов",
-        "items": data,
+        "items": prepared_items,
         "empty_message": "Нет объектов для отображения в карточках.",
     }
 
@@ -368,7 +602,7 @@ def _district_polygon(points, fallback_lat, fallback_lon):
     }
 
 
-def build_map_context(listings, districts, map_mode="overall", recommendations=None):
+def build_map_context(listings, districts, map_mode="overall", recommendations=None, selected_listing=None):
     scenario = MAP_MODE_CONFIG.get(map_mode, MAP_MODE_CONFIG["overall"])
     listing_score_key = scenario["listing_score_key"]
     district_score_key = scenario["district_score_key"]
@@ -408,6 +642,15 @@ def build_map_context(listings, districts, map_mode="overall", recommendations=N
             "recommendation_reasons": item.get("recommendation_reasons", []),
             "price_per_m2": item.get("price_per_m2", 0),
             "scores": item.get("scores", {}),
+            "geocode_status": item.get("geocode_status", ""),
+            "geocode_source": item.get("geocode_source", ""),
+            "source_label": item.get("source_label", "sample_data"),
+            "source_trust_score": item.get("source_trust_score", 60),
+            "source_trust_note": item.get("source_trust_note", "Источник требует ручной проверки"),
+            "duplicate_count": item.get("duplicate_count", 1),
+            "created_at": item.get("created_at"),
+            "score_explainer": item.get("score_explainer", []),
+            "trust_band": item.get("trust_band", "mid"),
         }
         for item in listings
         if item.get("lat") not in (None, 0, 0.0) and item.get("lon") not in (None, 0, 0.0)
@@ -425,12 +668,26 @@ def build_map_context(listings, districts, map_mode="overall", recommendations=N
     best_value_listing = max(map_listings, key=lambda item: item.get("scores", {}).get("value_score", 0), default=None)
 
     for item in map_listings:
+        display_lat, display_lon = _display_coordinates(item)
         baseline = district_baselines.get(item["district"], 0)
         fair_price_gap = round(((baseline - (item.get("price_per_m2") or baseline)) / baseline) * 100, 1) if baseline else 0
+        confidence_score = 52
+        if (item.get("geocode_source") or "").lower() == "nominatim":
+            confidence_score += 14
+        elif item.get("lat") and item.get("lon"):
+            confidence_score += 7
+        confidence_score += min(4, len([reason for reason in item.get("recommendation_reasons", []) if str(reason).strip()])) * 6
+        confidence_score += 4 if item.get("metro_station") else 0
+        item["lat"] = display_lat
+        item["lon"] = display_lon
         item["price_label"] = _format_price_short(item.get("price", 0))
         item["price_compact"] = _format_price_compact(item.get("price", 0))
         item["scenario_score"] = round(item.get("scores", {}).get(listing_score_key, 0), 1)
         item["fair_price_gap"] = fair_price_gap
+        item["confidence_score"] = min(96, confidence_score)
+        item.update(_freshness_payload(item.get("created_at")))
+        item.update(_geocode_quality_payload(item))
+        item["trust_band"] = _trust_band(item.get("source_trust_score", 60))
         item["is_top_pick"] = item["id"] in top_pick_ids
         item["is_best_value"] = bool(best_value_listing and item["id"] == best_value_listing.get("id"))
         item["marker_tone"] = "high" if item["scenario_score"] >= 75 else "mid" if item["scenario_score"] >= 60 else "low"
@@ -441,6 +698,10 @@ def build_map_context(listings, districts, map_mode="overall", recommendations=N
             item["marker_note"] = f"Топ-подборка по сценарию «{scenario['label'].lower()}»"
         else:
             item["marker_note"] = f"{scenario['label']}: {item['scenario_score']}/100"
+
+    selected_map_listing = None
+    if selected_listing:
+        selected_map_listing = next((item for item in map_listings if item.get("id") == selected_listing.get("id")), None)
 
     district_centroids = []
     ranked_districts = sorted(
@@ -533,9 +794,20 @@ def build_map_context(listings, districts, map_mode="overall", recommendations=N
     viewport_bounds = _build_viewport_bounds(map_listings)
     center = _build_map_center(map_listings, district_centroids)
     district_geojson_features = []
+    real_geojson_map = _load_real_district_geojson()
+    geojson_source = "generated"
     for district in district_centroids:
         district_points = [item for item in map_listings if item["district"] == district["district"]]
-        feature = _district_polygon(district_points, district["lat"], district["lon"])
+        feature = real_geojson_map.get(_normalize_district_name(district["district"]))
+        if feature:
+            feature = {
+                "type": "Feature",
+                "geometry": _simplify_geometry(feature.get("geometry")),
+                "properties": dict(feature.get("properties") or {}),
+            }
+            geojson_source = "file"
+        else:
+            feature = _district_polygon(district_points, district["lat"], district["lon"])
         feature["properties"] = {
             "district": district["district"],
             "rank": district["rank"],
@@ -555,6 +827,7 @@ def build_map_context(listings, districts, map_mode="overall", recommendations=N
         "listings": map_listings,
         "districts": district_centroids,
         "district_geojson": {"type": "FeatureCollection", "features": district_geojson_features},
+        "district_geojson_source": geojson_source,
         "stats": {
             "listing_count": len(map_listings),
             "district_count": len(district_centroids),
@@ -584,6 +857,7 @@ def build_map_context(listings, districts, map_mode="overall", recommendations=N
         "top_districts": top_districts,
         "selected_district": selected_district,
         "top_picks": map_listings_sorted[:3],
+        "selected_listing": selected_map_listing,
         "best_value_listing": best_value_listing,
         "best_value_district": best_value_district,
         "priority_zones": priority_zones,
@@ -613,6 +887,20 @@ def build_compare_context(districts, compare_selection):
     comparison = None
     if len(selected) == 2:
         left, right = selected
+        left_parts = {
+            "Цена / качество": round(float(left.get("budget_fit_score", 0)) * 0.35, 1),
+            "Транспорт": round(float(left.get("transport_score", 0)) * 0.20, 1),
+            "Инфраструктура": round(float(left.get("infra_score", 0)) * 0.20, 1),
+            "Семья": round(float(left.get("family_score", 0)) * 0.15, 1),
+            "Инвестиции": round(float(left.get("investment_score", 0)) * 0.10, 1),
+        }
+        right_parts = {
+            "Цена / качество": round(float(right.get("budget_fit_score", 0)) * 0.35, 1),
+            "Транспорт": round(float(right.get("transport_score", 0)) * 0.20, 1),
+            "Инфраструктура": round(float(right.get("infra_score", 0)) * 0.20, 1),
+            "Семья": round(float(right.get("family_score", 0)) * 0.15, 1),
+            "Инвестиции": round(float(right.get("investment_score", 0)) * 0.10, 1),
+        }
         metrics = [
             ("Семья", left["family_score"], right["family_score"]),
             ("Инвестиции", left["investment_score"], right["investment_score"]),
@@ -678,6 +966,26 @@ def build_compare_context(districts, compare_selection):
                 f"{left['district']} сильнее по транспорту" if left["transport_score"] > right["transport_score"] else f"{right['district']} сильнее по транспорту",
                 f"{left['district']} лучше для семьи" if left["family_score"] > right["family_score"] else f"{right['district']} лучше для семьи",
                 f"{left['district']} выглядит доступнее по бюджету" if left["budget_fit_score"] > right["budget_fit_score"] else f"{right['district']} выглядит доступнее по бюджету",
+            ],
+            "confidence_note": "Сравнение учитывает score района, цену, транспорт и сценарные подоценки по текущей выборке.",
+            "ranking_explainer": [
+                {
+                    "label": label,
+                    "left_share": round((left_parts[label] / (sum(left_parts.values()) or 1)) * 100),
+                    "right_share": round((right_parts[label] / (sum(right_parts.values()) or 1)) * 100),
+                    "winner": left["district"] if left_parts[label] >= right_parts[label] else right["district"],
+                }
+                for label in left_parts
+            ],
+            "district_explanations": [
+                (
+                    f"{left['district']} выше по метрике «{label.lower()}», потому что дает {left_parts[label]:.1f} score-пункта против {right_parts[label]:.1f} у {right['district']}."
+                    if left_parts[label] > right_parts[label]
+                    else f"{right['district']} выше по метрике «{label.lower()}», потому что дает {right_parts[label]:.1f} score-пункта против {left_parts[label]:.1f} у {left['district']}."
+                    if right_parts[label] > left_parts[label]
+                    else f"По метрике «{label.lower()}» районы идут почти вровень: {left_parts[label]:.1f} против {right_parts[label]:.1f}."
+                )
+                for label in left_parts
             ],
         }
     return {
