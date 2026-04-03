@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 import logging
 
-from backend.DataFetcher import refresh_database
+from backend.DataFetcher import DataFetcher, refresh_database
 from backend.config import AppConfig, DEFAULT_DB_PATH, DEFAULT_RUNTIME_SOURCE, resolve_path
-from backend.dataset_tools import clean_dataset_file, headers_are_compatible, merge_dataset_files, read_csv_rows
+from backend.dataset_tools import clean_dataset_file, headers_are_compatible, merge_dataset_files, read_csv_rows, write_csv_rows
 
 
 LOGGER = logging.getLogger("manage_data")
@@ -23,6 +23,12 @@ def build_parser() -> argparse.ArgumentParser:
     clean_parser = subparsers.add_parser("clean-csv", help="Очистить CSV от неполных и дублирующихся строк.")
     clean_parser.add_argument("--path", default=str(DEFAULT_RUNTIME_SOURCE), help="CSV-файл для очистки.")
 
+    geocode_parser = subparsers.add_parser("geocode-csv", help="Постепенно проставить точные координаты в CSV через remote geocoding.")
+    geocode_parser.add_argument("--path", default=str(DEFAULT_RUNTIME_SOURCE), help="CSV-файл для enrichment.")
+    geocode_parser.add_argument("--limit", type=int, default=25, help="Сколько строк обрабатывать за один запуск.")
+    geocode_parser.add_argument("--pause", type=float, default=1.2, help="Минимальная задержка между remote-запросами.")
+    geocode_parser.add_argument("--force", action="store_true", help="Перезапрашивать координаты даже если lat/lon уже заполнены.")
+
     rebuild_parser = subparsers.add_parser("rebuild-db", help="Явно пересобрать runtime-БД из CSV/HTML/test dataset.")
     rebuild_parser.add_argument("--source", default=str(DEFAULT_RUNTIME_SOURCE), help="Источник данных для rebuild.")
     rebuild_parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="Путь к SQLite-базе.")
@@ -36,6 +42,45 @@ def _validate_csv_headers(path: str) -> None:
     headers = rows[0].keys() if rows else []
     if not headers_are_compatible(headers):
         raise SystemExit(f"CSV {path} несовместим с ожидаемой схемой")
+
+
+def _geocode_csv_rows(path: str, limit: int, pause: float, force: bool) -> tuple[int, int, int]:
+    rows = read_csv_rows(path)
+    fetcher = DataFetcher(
+        source=path,
+        config=AppConfig(remote_geocoding_enabled=True, geocoder_min_delay=max(float(pause), 0.0)),
+    )
+    updated = 0
+    skipped = 0
+    blocked = 0
+    for row in rows:
+        if updated >= max(limit, 0):
+            break
+        has_coordinates = bool(str(row.get("lat") or "").strip() and str(row.get("lon") or "").strip())
+        if has_coordinates and not force:
+            skipped += 1
+            continue
+        address = str(row.get("addres") or row.get("address") or "").strip()
+        district = str(row.get("district") or "").strip()
+        if not address or not district:
+            skipped += 1
+            continue
+        geocoded = fetcher._request_remote_geocoder(address, district)
+        if not fetcher._remote_geocoder_available() and not geocoded:
+            blocked += 1
+            break
+        if not geocoded:
+            skipped += 1
+            continue
+        row["lat"] = f"{float(geocoded.get('lat') or 0):.6f}"
+        row["lon"] = f"{float(geocoded.get('lon') or 0):.6f}"
+        row["geocode_status"] = str(geocoded.get("geocode_status") or "geocoded")
+        row["geocode_source"] = str(geocoded.get("geocode_source") or "nominatim")
+        row["geocode_confidence"] = str(geocoded.get("geocode_confidence") or "")
+        updated += 1
+    write_csv_rows(path, rows)
+    remaining = sum(1 for row in rows if not (str(row.get("lat") or "").strip() and str(row.get("lon") or "").strip()))
+    return updated, skipped + blocked, remaining
 
 
 def main() -> None:
@@ -57,6 +102,15 @@ def main() -> None:
         print(f"[manage_data] cleaned -> {target}")
         print(f"[manage_data] raw rows: {raw_count}")
         print(f"[manage_data] cleaned rows: {cleaned_count}")
+        return
+
+    if args.command == "geocode-csv":
+        _validate_csv_headers(args.path)
+        updated, skipped, remaining = _geocode_csv_rows(args.path, args.limit, args.pause, args.force)
+        print(f"[manage_data] geocoded -> {args.path}")
+        print(f"[manage_data] updated rows: {updated}")
+        print(f"[manage_data] skipped rows: {skipped}")
+        print(f"[manage_data] remaining without lat/lon: {remaining}")
         return
 
     config = AppConfig(db_path=resolve_path(args.db_path), remote_geocoding_enabled=bool(args.remote_geocoding))

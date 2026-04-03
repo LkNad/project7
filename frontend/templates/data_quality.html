@@ -12,11 +12,24 @@
 <body class="analytics-page-body">
     <div class="page-shell map-first-shell">
         <div class="container analytics-page-container">
+            <nav class="workspace-nav premium-panel data-quality-nav">
+                <div>
+                    <span class="section-kicker">Навигация</span>
+                    <h1>Качество данных</h1>
+                </div>
+                <div class="workspace-nav-links">
+                    <a href="{{ url_for('workspace.index') }}" class="nav-link">Подбор</a>
+                    <a href="{{ url_for('workspace.map_page') }}" class="nav-link">Карта</a>
+                </div>
+            </nav>
             <section class="premium-panel analytics-header detail-hero-panel">
                 <div class="analytics-hero-copy">
                     <span class="section-kicker">Качество данных</span>
                     <h3>Состояние runtime-датасета и геокодинга</h3>
                     <p class="section-note">Страница показывает, сколько объектов загружено в базу, откуда взялись координаты и сколько строк было отброшено при очистке CSV.</p>
+                    {% if not quality.remote_geocoding_enabled %}
+                    <p class="section-note data-quality-warning">Точные адресные координаты сейчас не строятся, потому что remote geocoding выключен. В текущем CSV нет колонок `lat/lon`, поэтому все 159 точек рассчитаны через `deterministic-local`.</p>
+                    {% endif %}
                 </div>
             </section>
 
@@ -33,10 +46,10 @@
 
             <section class="premium-panel compare-section analytics-layer">
                 <div class="section-head compact-head"><div><span class="section-kicker">Источник</span><h3>Откуда берутся числа</h3></div></div>
-                <div class="detail-columns-grid">
-                    <article class="compare-card premium-compare-side"><p><strong>Файл датасета:</strong> {{ quality.dataset_path }}</p></article>
+                <div class="detail-columns-grid data-quality-columns">
+                    <article class="compare-card premium-compare-side data-quality-path-card"><p><strong>Файл датасета:</strong> <span class="data-quality-path">{{ quality.dataset_path }}</span></p></article>
                     <article class="compare-card premium-compare-side"><p><strong>Очистка CSV:</strong> удаляются неполные строки без адреса, района, `price`, `area` или `source_url`, а также дубли по `source_url`.</p></article>
-                    <article class="compare-card premium-compare-side"><p><strong>Геокодинг:</strong> `nominatim` означает address-level lookup, `deterministic-local` — честный fallback без ложной точности, `source payload` — координаты пришли из источника.</p></article>
+                    <article class="compare-card premium-compare-side"><p><strong>Геокодинг:</strong> `nominatim` означает точный address-level lookup, `deterministic-local` — честный fallback без ложной точности, `source payload` — координаты пришли прямо из источника.</p></article>
                 </div>
             </section>
         </div>

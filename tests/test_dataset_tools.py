@@ -56,6 +56,26 @@ def test_clean_rows_drops_incomplete_rows_and_deduplicates_by_source_url():
     assert cleaned[0]["source_url"] == "https://example.test/1"
 
 
+def test_clean_rows_keeps_record_without_building_type():
+    rows = [
+        {
+            "id": "0",
+            "title": "A",
+            "addres": "Москва, ул. Первая, 1",
+            "district": "Тверской",
+            "price": "10000000",
+            "area": "40",
+            "source_url": "https://example.test/1",
+            "building_type": "",
+        }
+    ]
+
+    cleaned = clean_rows(rows)
+
+    assert len(cleaned) == 1
+    assert cleaned[0]["building_type"] == ""
+
+
 def test_merge_rows_keeps_only_clean_unique_rows():
     base_rows = [
         {

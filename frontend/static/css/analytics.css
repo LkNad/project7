@@ -5,6 +5,10 @@
     padding: 22px;
 }
 
+.analytics-header {
+    margin-bottom: 26px;
+}
+
 .listings-section .section-head {
     margin-bottom: 18px;
 }
@@ -12,6 +16,10 @@
 .analytics-layer,
 .results-layer {
     margin-bottom: 14px;
+}
+
+.onboarding-panel.analytics-layer {
+    margin-top: 6px;
 }
 
 .product-status-panel {
@@ -48,6 +56,13 @@
     gap: 18px;
     align-items: start;
     margin-bottom: 18px;
+}
+
+.analytics-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 .analytics-hero-copy {
@@ -87,6 +102,49 @@
 }
 
 .analytics-actions-bar {
+    justify-content: flex-end;
+}
+
+.compare-jump-btn {
+    border-color: rgba(31, 76, 199, 0.24);
+    background: rgba(235, 241, 255, 0.96);
+}
+
+.compare-dock {
+    position: sticky;
+    bottom: 14px;
+    z-index: 18;
+    margin: 6px 0 18px;
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    border-radius: 20px;
+    background: rgba(250, 252, 255, 0.96);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 16px 34px rgba(16, 31, 51, 0.12);
+}
+
+.compare-dock-copy {
+    display: grid;
+    gap: 2px;
+}
+
+.compare-dock-copy strong {
+    color: var(--text);
+    font-size: 0.98rem;
+}
+
+.compare-dock-copy span:last-child {
+    color: var(--muted);
+    font-size: 0.82rem;
+}
+
+.compare-dock-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
     justify-content: flex-end;
 }
 
@@ -297,6 +355,35 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
+}
+
+.data-quality-nav {
+    margin-bottom: 14px;
+}
+
+.data-quality-columns {
+    align-items: stretch;
+}
+
+.data-quality-path-card {
+    min-width: 0;
+}
+
+.data-quality-path {
+    display: block;
+    margin-top: 8px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    color: var(--muted-strong);
+}
+
+.data-quality-warning {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: rgba(241, 184, 75, 0.14);
+    border: 1px solid rgba(241, 184, 75, 0.28);
+    color: #7a5811;
 }
 
 .shortlist-card {

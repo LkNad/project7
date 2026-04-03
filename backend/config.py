@@ -21,6 +21,8 @@ class AppConfig:
     geocoder_endpoint: str = "https://nominatim.openstreetmap.org/search"
     geocoder_email: str = ""
     geocoder_min_delay: float = 1.0
+    yandex_geocoder_key: str = ""
+    yandex_geocoder_endpoint: str = "https://geocode-maps.yandex.ru/1.x/"
 
     @staticmethod
     def _env_flag(name: str, default: bool) -> bool:
@@ -38,10 +40,12 @@ class AppConfig:
             db_path=db_path,
             request_timeout=request_timeout,
             test_dataset_name=test_dataset_name,
-            remote_geocoding_enabled=cls._env_flag("MEPHI_REMOTE_GEOCODING", False),
+            remote_geocoding_enabled=cls._env_flag("MEPHI_REMOTE_GEOCODING", True),
             geocoder_endpoint=os.getenv("MEPHI_GEOCODER_ENDPOINT", "https://nominatim.openstreetmap.org/search"),
             geocoder_email=os.getenv("MEPHI_GEOCODER_EMAIL", ""),
             geocoder_min_delay=float(os.getenv("MEPHI_GEOCODER_MIN_DELAY", "1.0")),
+            yandex_geocoder_key=os.getenv("MEPHI_YANDEX_GEOCODER_KEY", ""),
+            yandex_geocoder_endpoint=os.getenv("MEPHI_YANDEX_GEOCODER_ENDPOINT", "https://geocode-maps.yandex.ru/1.x/"),
         )
 
 

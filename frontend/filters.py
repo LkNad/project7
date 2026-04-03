@@ -345,12 +345,35 @@ def normalize_filters(form=None, user_weights=None):
     return normalized
 
 
+def _listing_primary_score_key(filters):
+    return {
+        "overall": "object_score",
+        "family": "family_score",
+        "investment": "investment_score",
+        "transport": "transport_score",
+        "value": "value_score",
+    }.get((filters or {}).get("map_mode"), "object_score")
+
+
+def _listing_sort_key(item, filters=None):
+    filters = filters or {}
+    scores = item.get("scores", {})
+    primary_key = _listing_primary_score_key(filters)
+    primary_score = float(scores.get(primary_key, 0) or 0)
+    overall_score = float(scores.get("object_score", 0) or 0)
+    value_score = float(scores.get("value_score", 0) or 0)
+    fit_score = float(scores.get("fit_score", 0) or 0)
+    quality_signal = float(scores.get("quality_signal", 0) or 0)
+    price = float(item.get("price", 0) or 0)
+    return (-primary_score, -overall_score, -value_score, -fit_score, -quality_signal, price)
+
+
 def filter_listings(listings, filters=None):
     filters = filters or DEFAULT_FILTERS
     price_min, price_max = filters["price_range"]
     filtered = []
 
-    for item in sorted(listings, key=lambda listing: listing["price"], reverse=True):
+    for item in listings:
         if not (price_min <= item["price"] <= price_max):
             continue
         if filters.get("rooms") is not None:
@@ -381,7 +404,7 @@ def filter_listings(listings, filters=None):
             continue
         filtered.append(item)
 
-    return filtered
+    return sorted(filtered, key=lambda item: _listing_sort_key(item, filters))
 
 
 def get_filter_options(listings, districts=None):
@@ -521,12 +544,19 @@ def _build_price_history_summary(price_history):
 def _build_district_ranking_explainer(district):
     if not district:
         return []
+    weights = district.get("score_weights") or {
+        "object": 0.35,
+        "transport": 0.20,
+        "infra": 0.20,
+        "family": 0.15,
+        "investment": 0.10,
+    }
     parts = {
-        "Транспорт": float(district.get("transport_score") or 0) * 0.2,
-        "Инфраструктура": float(district.get("infra_score") or 0) * 0.2,
-        "Семья": float(district.get("family_score") or 0) * 0.15,
-        "Инвестиции": float(district.get("investment_score") or 0) * 0.1,
-        "Цена / качество": float(district.get("budget_fit_score") or 0) * 0.35,
+        "Объекты": float(district.get("object_score") or 0) * float(weights.get("object", 0.35)),
+        "Транспорт": float(district.get("transport_score") or 0) * float(weights.get("transport", 0.20)),
+        "Инфраструктура": float(district.get("infra_score") or 0) * float(weights.get("infra", 0.20)),
+        "Семья": float(district.get("family_score") or 0) * float(weights.get("family", 0.15)),
+        "Инвестиции": float(district.get("investment_score") or 0) * float(weights.get("investment", 0.10)),
     }
     total = sum(parts.values()) or 1
     ordered = sorted(parts.items(), key=lambda item: item[1], reverse=True)
@@ -620,13 +650,7 @@ def build_page_context(form=None, db_path=None, user_weights=None):
     districts = load_districts_from_db(db_path=db_path) or computed_districts
     filtered_listings = filter_listings(enriched_listings, current_filters)
     filtered_districts = [district for district in districts if district["district_score"] >= current_filters["min_district_score"]]
-    mode_key = {
-        "overall": "object_score",
-        "family": "family_score",
-        "investment": "investment_score",
-        "transport": "transport_score",
-        "value": "value_score",
-    }.get(current_filters["map_mode"], "object_score")
+    mode_key = _listing_primary_score_key(current_filters)
     shortlist = sorted(
         filtered_listings,
         key=lambda item: (

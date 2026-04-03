@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import sys
 import threading
 
 from flask import Flask, request
 
 from backend.DataFetcher import DataFetcher
-from backend.config import DEFAULT_DB_PATH, DEFAULT_RUNTIME_SOURCE
+from backend.config import AppConfig, DEFAULT_DB_PATH, DEFAULT_RUNTIME_SOURCE
 from main.blueprints import account_bp, api_bp, reports_bp, workspace_bp
 from main.web import csrf_token, prepare_app_database, validate_csrf
 
@@ -66,12 +67,15 @@ def create_app(test_config=None):
         TESTING=False,
         AUTO_BOOTSTRAP_RUNTIME_DATASET=True,
         DEFAULT_RUNTIME_SOURCE=str(DEFAULT_RUNTIME_SOURCE),
+        REMOTE_GEOCODING_ENABLED=AppConfig.from_env().remote_geocoding_enabled,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.getenv("MEPHI_SESSION_COOKIE_SECURE", "0").strip().lower() in {"1", "true", "yes", "on"},
     )
     if test_config:
         app.config.update(test_config)
+    if app.config.get("TESTING") and (not test_config or "REMOTE_GEOCODING_ENABLED" not in test_config):
+        app.config["REMOTE_GEOCODING_ENABLED"] = False
 
     prepare_app_database(app)
     app.config.setdefault(
@@ -103,4 +107,4 @@ def create_app(test_config=None):
     return app
 
 
-app = None if os.getenv("MEPHI_SKIP_EAGER_APP", "0") == "1" else create_app()
+app = None if os.getenv("MEPHI_SKIP_EAGER_APP", "0") == "1" or "pytest" in sys.modules else create_app()

@@ -240,7 +240,10 @@
                         <h3>{{ map_context.scenario.workspace_title }}</h3>
                         <p class="section-note">{{ map_context.scenario.description }}</p>
                     </div>
-                    <a href="{{ url_for('workspace.map_page') }}" class="btn-link-map">Открыть карту</a>
+                    <div class="analytics-hero-actions">
+                        <button type="button" class="btn-link-map compare-jump-btn" id="compare-jump-btn">К сравнению</button>
+                        <a href="{{ url_for('workspace.map_page') }}" class="btn-link-map">Открыть карту</a>
+                    </div>
                 </div>
                 <form method="POST" class="analytics-toolbar-form premium-control-strip">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -284,11 +287,6 @@
                             <button type="submit" name="action" value="apply_filters" class="btn-apply">Обновить</button>
                             <button type="submit" name="action" value="reset_filters" class="btn-reset">Сброс</button>
                         </div>
-                    </div>
-                    <div class="analytics-preset-row">
-                        {% for preset in filter_options.presets %}
-                        <button type="submit" name="preset" value="{{ preset.value }}" class="analytics-preset-chip {% if current_filters.preset == preset.value %}active{% endif %}">{{ preset.label }}</button>
-                        {% endfor %}
                     </div>
                 </form>
             </section>
@@ -628,6 +626,18 @@
                 </div>
             </section>
 
+            <div class="compare-dock premium-panel" id="compare-dock" hidden>
+                <div class="compare-dock-copy">
+                    <span class="section-kicker">Сравнение</span>
+                    <strong id="compare-dock-title">Сравнение пусто</strong>
+                    <span id="compare-dock-note">Добавьте два объекта, и вердикт соберется автоматически.</span>
+                </div>
+                <div class="compare-dock-actions">
+                    <button type="button" class="listing-action-btn" id="compare-dock-open">Открыть блок</button>
+                    <button type="button" class="listing-action-btn" id="compare-dock-share">Поделиться</button>
+                </div>
+            </div>
+
             <section class="premium-panel listings-section results-layer">
                 <div class="section-head compact-head">
                     <div>
@@ -670,72 +680,78 @@
                                     <p>{{ listing.address }}</p>
                                 </div>
                             </div>
-                            <div class="listing-price-row">
+                            <div class="listing-price-row compact-price">
                                 <div class="listing-price">{{ "{:,.0f}".format(listing.price).replace(",", " ") }} ₽</div>
                                 <div class="price-callout">{{ "{:,.0f}".format(listing.price_per_m2).replace(",", " ") }} ₽/м²</div>
                             </div>
-                            <div class="price-secondary">score {{ "%.1f"|format(listing.scores.object_score) }} · район <a href="{{ url_for('workspace.district_detail', district_name=listing.district) }}">{{ listing.district }}</a>{% if listing.marker_badge %} · {{ listing.marker_badge }}{% endif %}</div>
-                            <div class="listing-verdict-row">
+                            <div class="listing-verdict-row compact-verdict">
                                 {% if listing.marker_note %}<span class="verdict-pill">{{ listing.marker_note }}</span>{% endif %}
                                 <span class="listing-rank-chip">#{{ loop.index }}</span>
-                                {% if listing.shortlist_rank %}<span class="listing-rank-chip shortlist-chip">shortlist #{{ listing.shortlist_rank }}</span>{% endif %}
                             </div>
-                            <div class="listing-trust-row">
+                            <div class="listing-trust-row compact-trust-row">
                                 <span class="listing-trust-pill">Источник: {{ listing.source_label }}</span>
-                                <span class="listing-trust-pill">доверие {{ listing.source_trust_score }}</span>
                                 <span class="listing-trust-pill trust-{{ listing.trust_band }}">{{ listing.source_trust_note }}</span>
                                 <span class="listing-trust-pill trust-{{ listing.geo_precision_tone|default('mid') }}" title="{{ listing.geo_precision_note }}">{{ listing.geo_precision_label }}</span>
                                 <span class="listing-trust-pill freshness-{{ listing.freshness_bucket|default('unknown')|replace('_', '-') }}">{{ listing.freshness_label }}</span>
-                                {% if listing.duplicate_count > 1 %}<span class="listing-trust-pill">дублей {{ listing.duplicate_count }}</span>{% endif %}
-                                <a href="{{ url_for('workspace.methodology_page') }}" class="methodology-hint" title="Почему доверие к источнику и свежесть выглядят именно так">?</a>
                             </div>
                             <p class="listing-summary-line">{{ listing.explain_summary }}</p>
-                            <div class="listing-stats">
+                            <div class="listing-stats compact-stats">
                                 <span>{{ listing.rooms }} комн.</span>
                                 <span>{{ listing.area }} м²</span>
                                 <span>{% if listing.metro_station %}{{ listing.metro_station }}{% else %}Метро не указано{% endif %}</span>
-                                <span>{% if listing.metro_time_min is not none %}{{ listing.metro_time_min }} мин до метро{% else %}Время до метро не указано{% endif %}</span>
                             </div>
-                            <div class="score-strip detailed compact-score-strip">
-                                <span>Цена/качество {{ "%.0f"|format(listing.scores.value_score) }}</span>
-                                <span>Транспорт {{ "%.0f"|format(listing.scores.transport_score) }}</span>
-                                <span>Сценарий {{ "%.0f"|format(listing.scores.object_score) }}</span>
+                            <div class="score-strip compact-score-strip">
+                                <span class="metric-value">Цена/качество {{ "%.0f"|format(listing.scores.value_score) }}</span>
+                                <span class="metric-transport">Транспорт {{ "%.0f"|format(listing.scores.transport_score) }}</span>
+                                <span class="metric-infra">Инфраструктура {{ "%.0f"|format(listing.scores.infra_score) }}</span>
+                                <span class="metric-fit">Fit {{ "%.0f"|format(listing.scores.fit_score) }}</span>
                             </div>
-                            <div class="score-explainer-row">
+                            <p class="listing-score-caption">Цвета ниже фиксированы: каждая метрика всегда помечается своим цветом.</p>
+                            <div class="score-explainer-row compact-explainer">
                                 {% for part in listing.score_explainer %}
-                                <span>{{ part.label }} {{ part.share }}%</span>
+                                <span class="metric-{{ part.key|replace('_', '-') }}">{{ part.label }} {{ part.share }}%</span>
                                 {% endfor %}
                             </div>
-                            <div class="stacked-explainer-bar" aria-label="Визуальный вклад метрик в score">
+                            <div class="stacked-explainer-bar compact-bar" aria-label="Визуальный вклад метрик в score">
                                 {% for part in listing.score_explainer %}
-                                <span class="stacked-segment segment-{{ loop.index }}" style="width: {{ part.share }}%" title="{{ part.label }} — {{ part.share }}%"></span>
+                                <span class="stacked-segment metric-{{ part.key|replace('_', '-') }}" style="width: {{ part.share }}%" title="{{ part.label }} — {{ part.share }}%"></span>
                                 {% endfor %}
                             </div>
-                            <div class="explain-box premium-explain-box">
-                                <strong>Короткие причины</strong>
-                                {% if listing.marker_badge or listing.price_compact %}<div class="why-recommended-badge">{{ listing.marker_badge }}{% if listing.marker_badge and listing.price_compact %} · {% endif %}{{ listing.price_compact }}</div>{% endif %}
-                                {% if listing.recommendation_reasons %}
-                                <ul class="reason-list clean-list">
-                                    {% for reason in listing.recommendation_reasons[:3] %}
-                                    <li>{{ reason }}</li>
-                                    {% endfor %}
-                                </ul>
-                                {% else %}
-                                <p class="explain-fallback">Подходит по текущему сценарию и базовым фильтрам выборки.</p>
-                                {% endif %}
-                                <p class="listing-caveat"><strong>Что проверить:</strong> {{ listing.caveat }}</p>
-                            </div>
+                            <details class="explain-box premium-explain-box">
+                                <summary>Подробнее</summary>
+                                <div class="explain-box-inner">
+                                    {% if listing.marker_badge or listing.price_compact %}<div class="why-recommended-badge">{{ listing.marker_badge }}{% if listing.marker_badge and listing.price_compact %} · {% endif %}{{ listing.price_compact }}</div>{% endif %}
+                                    {% if listing.recommendation_reasons %}
+                                    <ul class="reason-list clean-list">
+                                        {% for reason in listing.recommendation_reasons[:3] %}
+                                        <li>{{ reason }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                    {% else %}
+                                    <p class="explain-fallback">Подходит по текущему сценарию и базовым фильтрам выборки.</p>
+                                    {% endif %}
+                                    <p class="listing-caveat"><strong>Что проверить:</strong> {{ listing.caveat }}</p>
+                                </div>
+                            </details>
                             <div class="listing-footer">
-                                <span>Общий рейтинг {{ "%.1f"|format(listing.scores.object_score) }}</span>
-                                <div class="listing-actions">
+                                <div class="listing-footer-top">
+                                    <span>Общий рейтинг {{ "%.1f"|format(listing.scores.object_score) }}</span>
+                                    <span class="listing-footer-note">#{{ loop.index }} в выдаче</span>
+                                </div>
+                                <div class="listing-actions listing-actions-primary">
                                     <button type="button" class="listing-action-btn" data-favorite-toggle="{{ listing.id }}">В избранное</button>
                                     <button type="button" class="listing-action-btn" data-shortlist-toggle="{{ listing.id }}">В shortlist</button>
                                     <button type="button" class="listing-action-btn" data-compare-toggle="{{ listing.id }}">Сравнить</button>
-                                    <a href="{{ url_for('workspace.methodology_page') }}">Как считаются оценки</a>
-                                    {% if listing.id %}<a href="{{ url_for('workspace.listing_detail', listing_id=listing.id) }}">Карточка объекта</a>{% endif %}
-                                    {% if listing.id %}<a href="{{ url_for('workspace.map_page', focus_listing=listing.id) }}">На карте</a>{% endif %}
-                                    {% if listing.url %}<a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Открыть объявление</a>{% endif %}
                                 </div>
+                                <details class="listing-more-actions">
+                                    <summary>Еще действия</summary>
+                                    <div class="listing-actions listing-actions-secondary">
+                                        <a href="{{ url_for('workspace.methodology_page') }}">Как считаются оценки</a>
+                                        {% if listing.id %}<a href="{{ url_for('workspace.listing_detail', listing_id=listing.id) }}">Карточка объекта</a>{% endif %}
+                                        {% if listing.id %}<a href="{{ url_for('workspace.map_page', focus_listing=listing.id) }}">На карте</a>{% endif %}
+                                        {% if listing.url %}<a href="{{ listing.url }}" target="_blank" rel="noopener noreferrer">Открыть объявление</a>{% endif %}
+                                    </div>
+                                </details>
                             </div>
                         </div>
                     </article>
@@ -1793,7 +1809,7 @@
         })();
 
         (function () {
-            const listingData = {{ listing_cards['items']|tojson if page_kind != 'map' else '[]' }};
+            const listingData = {{ map_context['listings']|tojson if page_kind != 'map' else '[]' }};
             if (!listingData.length) {
                 return;
             }
@@ -1808,47 +1824,23 @@
             }
 
             const compareRoot = document.getElementById('object-compare-root');
+            const comparePanel = document.querySelector('.object-compare-panel');
+            const compareJumpBtn = document.getElementById('compare-jump-btn');
+            const compareDock = document.getElementById('compare-dock');
+            const compareDockTitle = document.getElementById('compare-dock-title');
+            const compareDockNote = document.getElementById('compare-dock-note');
+            const compareDockOpen = document.getElementById('compare-dock-open');
+            const compareDockShare = document.getElementById('compare-dock-share');
             const savedListsGrid = document.getElementById('saved-lists-grid');
             const shareShortlistBtn = document.getElementById('share-shortlist-btn');
             const shareCompareBtn = document.getElementById('share-compare-btn');
             const onboardingForm = document.getElementById('onboarding-form');
             const onboardingPreset = document.getElementById('onboarding-preset');
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-            const storageKeys = {
-                compare: 'mephi_compare_listings'
-            };
-
-            function readIds(key) {
-                try {
-                    return JSON.parse(window.localStorage.getItem(key) || '[]');
-                } catch (error) {
-                    return [];
-                }
-            }
-
-            function writeIds(key, ids) {
-                window.localStorage.setItem(key, JSON.stringify(ids));
-            }
-
             function getByIds(ids) {
                 return ids.map(function (id) {
                     return listingData.find(function (item) { return Number(item.id) === Number(id); });
                 }).filter(Boolean);
-            }
-
-            function toggleStoredId(key, id, limit) {
-                const ids = readIds(key);
-                const idx = ids.findIndex(function (value) { return Number(value) === Number(id); });
-                if (idx >= 0) {
-                    ids.splice(idx, 1);
-                } else {
-                    if (limit && ids.length >= limit) {
-                        ids.shift();
-                    }
-                    ids.push(Number(id));
-                }
-                writeIds(key, ids);
-                return ids;
             }
 
             async function fetchSavedLists() {
@@ -1885,6 +1877,11 @@
                 return response.json();
             }
 
+            function scrollToCompare() {
+                if (!comparePanel) return;
+                comparePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+
             function renderSavedLists() {
                 if (!savedListsGrid) return;
                 const favorites = getByIds(window.__serverSavedFavorites || []);
@@ -1908,14 +1905,45 @@
 
             function renderCompare() {
                 if (!compareRoot) return;
-                const compareItems = getByIds(readIds(storageKeys.compare));
+                const compareItems = getByIds(window.__serverSavedCompare || []);
+                if (compareDock && compareDockTitle && compareDockNote) {
+                    compareDock.hidden = false;
+                    compareDockTitle.textContent = compareItems.length >= 2
+                        ? 'Готово сравнение ' + compareItems[0].title + ' vs ' + compareItems[1].title
+                        : compareItems.length === 1
+                            ? 'Добавлен 1 объект в сравнение'
+                            : 'Сравнение пусто';
+                    compareDockNote.textContent = compareItems.length >= 2
+                        ? 'Можно мгновенно прыгнуть к вердикту ниже страницы.'
+                        : compareItems.length === 1
+                            ? 'Добавьте еще один объект, чтобы получить one-to-one verdict.'
+                            : 'Добавьте два объекта, и вердикт соберется автоматически.';
+                }
+                if (compareJumpBtn) {
+                    compareJumpBtn.textContent = compareItems.length >= 2 ? 'К сравнению (2)' : compareItems.length === 1 ? 'К сравнению (1)' : 'К сравнению';
+                }
                 if (compareItems.length < 2) {
                     compareRoot.className = 'empty-state';
-                    compareRoot.textContent = 'Выберите два объекта кнопкой «Сравнить», чтобы увидеть сравнение.';
+                    compareRoot.textContent = window.__serverSavedCompare && window.__serverSavedCompare.length
+                        ? 'Выбранные объекты не попали в текущую выдачу. Сбросьте фильтры или добавьте в сравнение объекты из текущего списка.'
+                        : 'Выберите два объекта кнопкой «Сравнить», чтобы увидеть сравнение.';
                     return;
                 }
                 const left = compareItems[0];
                 const right = compareItems[1];
+                const leftSummary = left.explain_summary || (left.recommendation_reasons || []).slice(0, 2).join(', ') || left.marker_note || 'без пояснения';
+                const rightSummary = right.explain_summary || (right.recommendation_reasons || []).slice(0, 2).join(', ') || right.marker_note || 'без пояснения';
+                const leftScore = Number(left.scores.object_score || 0);
+                const rightScore = Number(right.scores.object_score || 0);
+                const winner = leftScore >= rightScore ? left : right;
+                const priceGap = Math.abs(Number(left.price || 0) - Number(right.price || 0)).toLocaleString('ru-RU');
+                const metricRows = [
+                    ['Общий рейтинг', leftScore, rightScore],
+                    ['Цена/качество', Number(left.scores.value_score || 0), Number(right.scores.value_score || 0)],
+                    ['Транспорт', Number(left.scores.transport_score || 0), Number(right.scores.transport_score || 0)],
+                    ['Семья', Number(left.scores.family_score || 0), Number(right.scores.family_score || 0)],
+                    ['Инвестиции', Number(left.scores.investment_score || 0), Number(right.scores.investment_score || 0)]
+                ];
                 compareRoot.className = 'compare-grid enhanced-compare-grid object-compare-grid';
                 compareRoot.innerHTML = `
                     <article class="compare-card premium-compare-side">
@@ -1930,9 +1958,14 @@
                     </article>
                     <article class="compare-card premium-verdict-card">
                         <span class="section-kicker">Объектный verdict</span>
-                        <h4>${escapeHtml(Number(left.scores.object_score || 0) >= Number(right.scores.object_score || 0) ? left.title : right.title)}</h4>
-                        <p class="verdict-lead">Разница по цене ${Math.abs(Number(left.price || 0) - Number(right.price || 0)).toLocaleString('ru-RU')} ₽.</p>
-                        <div class="verdict-spotlight">${escapeHtml(left.title)}: ${escapeHtml(left.explain_summary)} · ${escapeHtml(right.title)}: ${escapeHtml(right.explain_summary)}</div>
+                        <h4>${escapeHtml(winner.title)}</h4>
+                        <p class="verdict-lead">Побеждает по общему рейтингу, разница в цене ${priceGap} ₽.</p>
+                        <div class="verdict-stats-row">
+                            <span>${escapeHtml(left.title)} ${leftScore.toFixed(1)}</span>
+                            <span>${escapeHtml(right.title)} ${rightScore.toFixed(1)}</span>
+                        </div>
+                        <div class="verdict-spotlight">${metricRows.map(function (metric) { return escapeHtml(metric[0]) + ': ' + metric[1].toFixed(0) + ' vs ' + metric[2].toFixed(0); }).join(' · ')}</div>
+                        <p class="verdict-support-note">${escapeHtml(left.title)}: ${escapeHtml(leftSummary)}. ${escapeHtml(right.title)}: ${escapeHtml(rightSummary)}.</p>
                     </article>
                     <article class="compare-card premium-compare-side">
                         <h4>${escapeHtml(right.title)}</h4>
@@ -2017,6 +2050,23 @@
 
             if (shareCompareBtn) {
                 shareCompareBtn.addEventListener('click', async function () {
+                    const payload = await createShare('compare');
+                    if (payload && payload.url) {
+                        window.prompt('Ссылка на сравнение (HTML / PDF)', payload.url + ' | ' + (payload.pdf_url || ''));
+                    }
+                });
+            }
+
+            if (compareJumpBtn) {
+                compareJumpBtn.addEventListener('click', scrollToCompare);
+            }
+
+            if (compareDockOpen) {
+                compareDockOpen.addEventListener('click', scrollToCompare);
+            }
+
+            if (compareDockShare) {
+                compareDockShare.addEventListener('click', async function () {
                     const payload = await createShare('compare');
                     if (payload && payload.url) {
                         window.prompt('Ссылка на сравнение (HTML / PDF)', payload.url + ' | ' + (payload.pdf_url || ''));

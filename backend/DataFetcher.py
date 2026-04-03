@@ -65,7 +65,22 @@ DISTRICT_GEOJSON_PATH = Path(__file__).resolve().parent.parent / "frontend" / "s
 DIRTY_ADDRESS_RE = re.compile(r"^(nan|none|null|не указано|адрес не указан|без адреса|—|-|\d+)$", re.IGNORECASE)
 HOUSE_NUMBER_RE = re.compile(r",\s*(\d+[а-яa-z0-9/-]*)", re.IGNORECASE)
 ADDRESS_PREFIX_RE = re.compile(r"^Москва,\s*(?:[А-ЯЁ]{2,5}|ТиНАО|ЗелАО),\s*", re.IGNORECASE)
+INLINE_ADMIN_PREFIX_RE = re.compile(r",\s*(?:[А-ЯЁ]{2,5}|ТиНАО|ЗелАО),\s*", re.IGNORECASE)
+INLINE_DISTRICT_PREFIX_RE = re.compile(r",\s*(?:р-н|район)\s+[^,]+,\s*", re.IGNORECASE)
+INLINE_OKRUG_PREFIX_RE = re.compile(r",\s*[^,]*административный округ,\s*", re.IGNORECASE)
 MOSCOW_FALLBACK_CENTROID = (55.751244, 37.618423)
+YANDEX_COORD_RE = re.compile(r'"(?:displayCoordinates|coordinates)":\[\s*([0-9.\-]+)\s*,\s*([0-9.\-]+)\s*\]')
+ADDRESS_ABBREVIATIONS = {
+    r"\bул\.?(?=\s|,|$)": "улица",
+    r"\bпр-т\b": "проспект",
+    r"\bпросп\.?(?=\s|,|$)": "проспект",
+    r"\bш\.?(?=\s|,|$)": "шоссе",
+    r"\bб-р\b": "бульвар",
+    r"\bнаб\.?(?=\s|,|$)": "набережная",
+    r"\bпер\.?(?=\s|,|$)": "переулок",
+    r"\bпл\.?(?=\s|,|$)": "площадь",
+    r"\bал\.?(?=\s|,|$)": "аллея",
+}
 
 
 def _stable_hash(value: str) -> int:
@@ -449,6 +464,43 @@ class DataFetcher:
         return cleaned
 
     @staticmethod
+    def _expand_address_variants(address: str) -> list[str]:
+        base = DataFetcher.normalize_address(address)
+        if not base:
+            return []
+        variants = [base]
+        stripped = INLINE_OKRUG_PREFIX_RE.sub(", ", INLINE_DISTRICT_PREFIX_RE.sub(", ", INLINE_ADMIN_PREFIX_RE.sub(", ", base)))
+        stripped = re.sub(r"\s*,\s*", ", ", stripped).strip(" ,;")
+        if stripped and stripped != base:
+            variants.append(stripped)
+        expanded = base
+        for source, target in ADDRESS_ABBREVIATIONS.items():
+            expanded = re.sub(source, target, expanded, flags=re.IGNORECASE)
+        expanded = re.sub(r"\bкорп\.?\s*(\d+[а-яa-z0-9-]*)\b", r"корпус \1", expanded, flags=re.IGNORECASE)
+        expanded = re.sub(r"\bд\.?\s*(\d+[а-яa-z0-9-]*)\b", r"дом \1", expanded, flags=re.IGNORECASE)
+        expanded = re.sub(r"\s*,\s*", ", ", expanded)
+        if expanded not in variants:
+            variants.append(expanded)
+        expanded_stripped = INLINE_OKRUG_PREFIX_RE.sub(", ", INLINE_DISTRICT_PREFIX_RE.sub(", ", INLINE_ADMIN_PREFIX_RE.sub(", ", expanded)))
+        expanded_stripped = re.sub(r"\s*,\s*", ", ", expanded_stripped).strip(" ,;")
+        if expanded_stripped and expanded_stripped not in variants:
+            variants.append(expanded_stripped)
+        if "Зеленоград" in expanded and "Москва, Зеленоград" not in variants:
+            variants.append(expanded.replace("Москва, ", "Москва, Зеленоград, ", 1) if not expanded.startswith("Москва, Зеленоград") else expanded)
+        if "г. Московский" in base or "г Московский" in base or "Московский" in base:
+            moscow_variant = expanded.replace("г. Московский", "Московский").replace("г Московский", "Московский")
+            moscow_variant = re.sub(r"Москва,\s*", "Москва, Московский, ", moscow_variant, count=1)
+            moscow_variant = re.sub(r"\s*,\s*", ", ", moscow_variant)
+            if moscow_variant not in variants:
+                variants.append(moscow_variant)
+        deduped = []
+        for variant in variants:
+            normalized = DataFetcher.normalize_address(variant)
+            if normalized and normalized not in deduped:
+                deduped.append(normalized)
+        return deduped
+
+    @staticmethod
     def normalize_district(district: str) -> str:
         normalized = " ".join(str(district or "").split()).strip()
         return normalized or "Неизвестный"
@@ -473,15 +525,17 @@ class DataFetcher:
         return MOSCOW_FALLBACK_CENTROID
 
     def _build_geocoder_queries(self, address: str, district: str) -> list[str]:
-        normalized_address = self.normalize_address(address)
+        normalized_variants = self._expand_address_variants(address)
         district_name = self.normalize_district(district)
         queries = []
-        if normalized_address:
+        for normalized_address in normalized_variants:
             queries.append(normalized_address)
+            queries.append(f"{normalized_address}, Россия")
+            street_part = normalized_address.replace("Москва, ", "", 1)
             if district_name and district_name != "Неизвестный" and district_name not in normalized_address:
-                street_part = normalized_address.replace("Москва, ", "", 1)
                 queries.append(f"Москва, район {district_name}, {street_part}")
                 queries.append(f"Москва, {district_name}, {street_part}")
+                queries.append(f"{street_part}, район {district_name}, Москва")
         deduped = []
         for query in queries:
             if query not in deduped:
@@ -559,6 +613,87 @@ class DataFetcher:
             "map_point": f"{lat:.6f},{lon:.6f}",
         }
 
+    def _request_yandex_maps_geocoder_raw(self, query: str) -> dict | None:
+        normalized_query = self.normalize_address(query)
+        if not normalized_query:
+            return None
+        try:
+            response = self.session.get(
+                "https://yandex.ru/maps/",
+                params={"text": normalized_query},
+                headers={"User-Agent": "MephiJunior/1.0 (address geocoding)"},
+                timeout=max(self.timeout, 15.0),
+            )
+            response.raise_for_status()
+        except requests.RequestException as error:
+            LOGGER.warning("Yandex Maps geocoder failed for %s: %s", normalized_query, error)
+            return None
+        match = YANDEX_COORD_RE.search(response.text)
+        if not match:
+            return None
+        try:
+            lon = round(float(match.group(1)), 6)
+            lat = round(float(match.group(2)), 6)
+        except (TypeError, ValueError):
+            return None
+        if not lat or not lon:
+            return None
+        return {
+            "lat": lat,
+            "lon": lon,
+            "geocode_status": "geocoded",
+            "geocode_source": "yandex-maps",
+            "geocode_confidence": 0.9,
+            "map_point": f"{lat:.6f},{lon:.6f}",
+        }
+
+    def _request_yandex_http_geocoder_raw(self, query: str) -> dict | None:
+        normalized_query = self.normalize_address(query)
+        api_key = str(self.config.yandex_geocoder_key or "").strip()
+        if not normalized_query or not api_key:
+            return None
+
+        try:
+            response = self.session.get(
+                self.config.yandex_geocoder_endpoint,
+                params={
+                    "apikey": api_key,
+                    "geocode": normalized_query,
+                    "format": "json",
+                    "lang": "ru_RU",
+                    "results": 1,
+                },
+                headers={"User-Agent": "MephiJunior/1.0 (address geocoding)"},
+                timeout=max(self.timeout, 15.0),
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as error:
+            LOGGER.warning("Yandex HTTP geocoder failed for %s: %s", normalized_query, error)
+            return None
+
+        try:
+            members = payload["response"]["GeoObjectCollection"]["featureMember"]
+            if not members:
+                return None
+            pos = members[0]["GeoObject"]["Point"]["pos"]
+            lon_text, lat_text = str(pos).split()
+            lon = round(float(lon_text), 6)
+            lat = round(float(lat_text), 6)
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
+
+        if not lat or not lon:
+            return None
+        return {
+            "lat": lat,
+            "lon": lon,
+            "geocode_status": "geocoded",
+            "geocode_source": "yandex-http",
+            "geocode_confidence": 0.94,
+            "map_point": f"{lat:.6f},{lon:.6f}",
+        }
+
     def _is_result_plausible(self, geocoded: dict | None, district: str) -> bool:
         if not geocoded:
             return False
@@ -602,10 +737,19 @@ class DataFetcher:
         return cache
 
     def _request_remote_geocoder(self, address: str, district: str) -> dict | None:
-        if not self._remote_geocoder_available():
-            return None
         for query in self._build_geocoder_queries(address, district):
-            geocoded = self._request_remote_geocoder_raw(query)
+            yandex_http_geocoded = self._request_yandex_http_geocoder_raw(query)
+            if yandex_http_geocoded and self._is_result_plausible(yandex_http_geocoded, district):
+                return yandex_http_geocoded
+            if yandex_http_geocoded:
+                LOGGER.warning(
+                    "Yandex HTTP geocoder returned implausible point for %s (%s): %s,%s",
+                    address,
+                    district,
+                    yandex_http_geocoded.get("lat"),
+                    yandex_http_geocoded.get("lon"),
+                )
+            geocoded = self._request_remote_geocoder_raw(query) if self._remote_geocoder_available() else None
             if geocoded and self._is_result_plausible(geocoded, district):
                 return geocoded
             if geocoded:
@@ -887,6 +1031,8 @@ class DataFetcher:
                 "price": row.get("price", 0),
                 "area": row.get("area", 0),
                 "rooms": row.get("rooms", 0),
+                "lat": row.get("lat") or row.get("latitude") or row.get("geo_lat"),
+                "lon": row.get("lon") or row.get("longitude") or row.get("geo_lon"),
                 "floor": row.get("floor"),
                 "total_floors": row.get("total_floors"),
                 "url": row.get("url") or row.get("source_url") or "",
@@ -1136,6 +1282,46 @@ class DataFetcher:
             updated += 1
         return updated
 
+    def _refresh_inexact_coordinates(self, conn: sqlite3.Connection) -> int:
+        if not self.config.remote_geocoding_enabled:
+            return 0
+        rows = conn.execute(
+            """
+            SELECT id, address, district
+            FROM listings
+            WHERE COALESCE(geocode_source, '') IN ('deterministic-local', 'cached-fallback')
+              AND COALESCE(TRIM(address), '') <> ''
+            """
+        ).fetchall()
+        updated = 0
+        for row in rows:
+            address = self.normalize_address(row[1])
+            district = self.normalize_district(row[2])
+            quality_ok, _ = self._validate_address_quality(address, district)
+            if not quality_ok:
+                continue
+            geocoded = self._request_remote_geocoder(address, district)
+            if not geocoded:
+                continue
+            conn.execute(
+                """
+                UPDATE listings
+                SET lat = ?, lon = ?, geocode_status = ?, geocode_source = ?, geocode_confidence = ?, map_point = ?
+                WHERE id = ?
+                """,
+                (
+                    geocoded.get("lat", 0.0),
+                    geocoded.get("lon", 0.0),
+                    geocoded.get("geocode_status", "missing"),
+                    geocoded.get("geocode_source", ""),
+                    geocoded.get("geocode_confidence", 0.0),
+                    geocoded.get("map_point", ""),
+                    row[0],
+                ),
+            )
+            updated += 1
+        return updated
+
     def _load_listings_from_connection(self, conn: sqlite3.Connection) -> list[dict]:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM listings ORDER BY created_at DESC, id DESC").fetchall()
@@ -1229,6 +1415,7 @@ class DataFetcher:
             self._backfill_listing_derived_fields(conn)
             self._backfill_price_snapshots(conn)
             self._refresh_missing_coordinates(conn)
+            self._refresh_inexact_coordinates(conn)
             self._rebuild_districts(conn)
             conn.commit()
         return schema_changed
@@ -1411,6 +1598,7 @@ class DataFetcher:
             self._record_price_snapshots(conn, data)
             self._backfill_listing_derived_fields(conn)
             self._refresh_missing_coordinates(conn)
+            self._refresh_inexact_coordinates(conn)
             self._rebuild_districts(conn)
             conn.commit()
 
@@ -1434,6 +1622,7 @@ class DataFetcher:
             self._record_price_snapshots(conn, listings)
             self._backfill_listing_derived_fields(conn)
             self._refresh_missing_coordinates(conn)
+            self._refresh_inexact_coordinates(conn)
             self._rebuild_districts(conn)
             conn.commit()
         LOGGER.info("Сохранено %s записей в базу %s", len(listings), self.db_path)

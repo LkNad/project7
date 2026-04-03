@@ -10,7 +10,7 @@ from flask import abort, current_app, request, session
 
 from backend.DataFetcher import DataFetcher
 from backend.dataset_tools import read_dataset_metadata
-from backend.config import DEFAULT_RUNTIME_SOURCE
+from backend.config import AppConfig, DEFAULT_RUNTIME_SOURCE
 from frontend.filters import build_page_context
 
 
@@ -403,7 +403,13 @@ def json_response(context):
 
 def prepare_app_database(app) -> None:
     db_path = app.config.get("DB_PATH")
-    DataFetcher(db_path=db_path).ensure_database_compatibility()
+    DataFetcher(
+        db_path=db_path,
+        config=AppConfig(
+            db_path=_db_path(db_path),
+            remote_geocoding_enabled=bool(app.config.get("REMOTE_GEOCODING_ENABLED", False)),
+        ),
+    ).ensure_database_compatibility()
     ensure_user_tables(db_path)
     ensure_saved_lists_table(db_path)
 
@@ -412,12 +418,12 @@ def load_data_quality(db_path: str | None = None) -> dict[str, object]:
     dataset_path = current_app.config.get("DEFAULT_RUNTIME_SOURCE") or str(DEFAULT_RUNTIME_SOURCE)
     metadata = read_dataset_metadata(dataset_path)
     with sqlite3.connect(_db_path(db_path)) as conn:
-        listing_count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
-        nominatim_count = conn.execute("SELECT COUNT(*) FROM listings WHERE LOWER(COALESCE(geocode_source, '')) = 'nominatim'").fetchone()[0]
-        fallback_count = conn.execute("SELECT COUNT(*) FROM listings WHERE LOWER(COALESCE(geocode_source, '')) = 'deterministic-local'").fetchone()[0]
-        provided_count = conn.execute("SELECT COUNT(*) FROM listings WHERE LOWER(COALESCE(geocode_source, '')) IN ('provided', 'source-payload')").fetchone()[0]
-    raw_rows = int(metadata.get("raw_rows", listing_count)) if metadata else listing_count
-    dropped_rows = int(metadata.get("dropped_rows", 0)) if metadata else 0
+        listing_count = int(conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0] or 0)
+        nominatim_count = int(conn.execute("SELECT COUNT(*) FROM listings WHERE LOWER(COALESCE(geocode_source, '')) = 'nominatim'").fetchone()[0] or 0)
+        fallback_count = int(conn.execute("SELECT COUNT(*) FROM listings WHERE LOWER(COALESCE(geocode_source, '')) = 'deterministic-local'").fetchone()[0] or 0)
+        provided_count = int(conn.execute("SELECT COUNT(*) FROM listings WHERE LOWER(COALESCE(geocode_source, '')) IN ('provided', 'source-payload')").fetchone()[0] or 0)
+    raw_rows = int((metadata or {}).get("raw_rows") or listing_count)
+    dropped_rows = int((metadata or {}).get("dropped_rows") or 0)
     return {
         "dataset_path": dataset_path,
         "raw_rows": raw_rows,
@@ -426,5 +432,6 @@ def load_data_quality(db_path: str | None = None) -> dict[str, object]:
         "nominatim_count": nominatim_count,
         "fallback_count": fallback_count,
         "provided_count": provided_count,
+        "remote_geocoding_enabled": bool(current_app.config.get("REMOTE_GEOCODING_ENABLED", False)),
         "metadata": metadata,
     }
